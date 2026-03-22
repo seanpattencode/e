@@ -256,7 +256,7 @@ static void	eerase(void);
 static int	ctrlg(int, int, int);
 static int	quit(int, int, int);
 static int	backdir(int, int, int);
-static void	filldir(char *);
+static int	filldir(char *);
 static int	readin(char *);
 static void	keydup(int, char *);
 static void	keyadd(int, int (*)(int,int,int), char *);
@@ -2675,6 +2675,7 @@ readin(char * fname)
 	register int	nline;
 	char		*line;
 
+	if(filldir(fname))return TRUE;
 	bp = curbp;
 	if ((s=bclear(bp)) != TRUE)
 		return (s);
@@ -2727,16 +2728,16 @@ out:
 
 typedef struct{char n[64];char d;}Dent;
 static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
-static void
+static int
 filldir(char *p)
 {DIR*d;struct dirent*e;LINE*l;int n,c=0,i;char s[80];Dent ents[512];
-if(!(d=opendir(p)))return;bclear(curbp);chdir(p);getcwd(curbp->b_fname,NFILEN);
+if(!(d=opendir(p)))return 0;bclear(curbp);chdir(p);getcwd(curbp->b_fname,NFILEN);
 while((e=readdir(d))&&c<512){if(e->d_name[0]=='.'&&!e->d_name[1])continue;ents[c].d=e->d_type==DT_DIR;strlcpy(ents[c++].n,e->d_name,64);}
 closedir(d);qsort(ents,c,sizeof(Dent),dentcmp);for(i=0;i<c;i++){
 n=sprintf(s,"%s%s",ents[i].d?"> ":"  ",ents[i].n);if((l=lalloc(n))){
 l->l_bp=lback(curbp->b_linep);l->l_bp->l_fp=l;l->l_fp=curbp->b_linep;
 curbp->b_linep->l_bp=l;while(n--)lputc(l,n,s[n]);}}dirmode=1;dirsl=0;dirsrch[0]=0;
-curwp->w_linep=curwp->w_dotp=lforw(curbp->b_linep);curwp->w_doto=0;curwp->w_flag|=WFHARD;}
+curwp->w_linep=curwp->w_dotp=lforw(curbp->b_linep);curwp->w_doto=0;curwp->w_flag|=WFHARD;return 1;}
 static int
 backdir(int f, int n, int k)
 {if(dirmode){filldir("..");}else{char d[80],*p;strcpy(d,curbp->b_fname);p=strrchr(d,'/');if(p)*p=0;else*d=0;filldir(*d?d:".");}return TRUE;}
