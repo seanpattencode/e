@@ -212,7 +212,7 @@ typedef	struct	BUFFER {
 typedef	struct	{
 	struct	LINE *r_linep;
 	short	r_offset;
-	short	r_size;
+	int	r_size;
 }	REGION;
 
 typedef	struct	LINE {
@@ -1645,6 +1645,7 @@ static int	forwline(int, int, int);
 static int	backline(int, int, int);
 static int	forwpage(int, int, int);
 static int	backpage(int, int, int);
+static int	selectall(int, int, int);
 static int	setmark(int, int, int);
 static int	swapmark(int, int, int);
 static int	gotoline(int, int, int);
@@ -1679,6 +1680,7 @@ static int	backdel(int, int, int);
 static int	killline(int, int, int);
 static int	yank(int, int, int);
 
+static void	clip_osc52(void);
 static int	killregion(int, int, int);
 static int	copyregion(int, int, int);
 static int	lowerregion(int, int, int);
@@ -1718,7 +1720,7 @@ typedef	struct	{
 }	KEY;
 
 KEY	key[] = {
-	KCTRL|'A',	gotobol,	"goto-bol",
+	KCTRL|'A',	selectall,	"select-all",
 	KCTRL|'B',	backdir,	"back-dir",
 	KCTRL|'C',	copyregion,	"copy-region",
 	KCTRL|'D',	quit,		"quit",
@@ -3420,7 +3422,23 @@ killregion(int f, int n, int k)
 	thisflag |= CFKILL;
 	curwp->w_dotp = region.r_linep;
 	curwp->w_doto = region.r_offset;
-	return (ldelete(region.r_size, TRUE));
+	s = ldelete(region.r_size, TRUE);
+	if (s == TRUE) clip_osc52();
+	return (s);
+}
+
+static void
+clip_osc52(void)
+{
+	int n = kused;
+	FILE *fp;
+	if (n <= 0 || n > 1000000) return;
+#ifdef __APPLE__
+	fp = popen("pbcopy", "w");
+#else
+	fp = popen("xclip -selection clipboard 2>/dev/null || xsel --clipboard --input 2>/dev/null || wl-copy 2>/dev/null", "w");
+#endif
+	if (fp) { fwrite(kbufp, 1, (size_t)n, fp); pclose(fp); }
 }
 
 static int
@@ -3450,6 +3468,8 @@ copyregion(int f, int n, int k)
 			++loffs;
 		}
 	}
+	clip_osc52();
+	eprintf("[Copied %d bytes]", kused);
 	return (TRUE);
 }
 
@@ -3563,11 +3583,11 @@ getregion(REGION * rp)
 static int
 setsize(REGION * rp, long size)
 {
-	rp->r_size = size;
-	if (rp->r_size != size) {
+	if (size > 0x7FFFFFFF) {
 		eprintf("Region is too large");
 		return (FALSE);
 	}
+	rp->r_size = (int)size;
 	return (TRUE);
 }
 
@@ -3771,6 +3791,18 @@ backpage(int f, int n, int k)
 	curwp->w_dotp  = lp;
 	curwp->w_doto  = 0;
 	curwp->w_flag |= WFHARD;
+	return (TRUE);
+}
+
+static int
+selectall(int f, int n, int k)
+{
+	curwp->w_dotp = lforw(curbp->b_linep);
+	curwp->w_doto = 0;
+	curwp->w_markp = lback(curbp->b_linep);
+	curwp->w_marko = llength(lback(curbp->b_linep));
+	curwp->w_flag |= WFHARD;
+	eprintf("[All selected]");
 	return (TRUE);
 }
 
@@ -4605,7 +4637,88 @@ typedef	struct	{
 	short	v_color;
 	XSHORT	v_cost;
 	char	v_text[NCOL];
+	char	v_attr[NCOL];
 }	VIDEO;
+
+#define HL_NORM 0
+#define HL_KW   1
+#define HL_STR  2
+#define HL_CMT  3
+#define HL_NUM  4
+#define HL_PRE  5
+
+static const char *hl_colors[] = {
+	"\033[m",       /* HL_NORM */
+	"\033[33m",     /* HL_KW  yellow */
+	"\033[32m",     /* HL_STR green */
+	"\033[36m",     /* HL_CMT cyan */
+	"\033[35m",     /* HL_NUM magenta */
+	"\033[31m",     /* HL_PRE red/preprocessor */
+};
+
+static const char *c_kw[] = {
+	"auto","break","case","char","const","continue","default","do",
+	"double","else","enum","extern","float","for","goto","if","int",
+	"long","register","return","short","signed","sizeof","static",
+	"struct","switch","typedef","union","unsigned","void","volatile",
+	"while","NULL","TRUE","FALSE","define","include","ifdef","ifndef",
+	"endif","elif","undef","pragma",NULL
+};
+
+static int is_ckw(const char *s, int len) {
+	const char **k;
+	for (k = c_kw; *k; k++)
+		if ((int)strlen(*k) == len && !memcmp(s, *k, (size_t)len))
+			return 1;
+	return 0;
+}
+
+static void
+hl_line(VIDEO *vp, int cols)
+{
+	int i, st = HL_NORM;
+	char *t = vp->v_text;
+	char *a = vp->v_attr;
+
+	for (i = 0; i < cols; i++) {
+		int c = t[i] & 0xFF;
+		if (st == HL_CMT) { a[i] = HL_CMT; continue; }
+		if (st == HL_STR) {
+			a[i] = HL_STR;
+			if (c == '"' && i > 0 && t[i-1] != '\\') st = HL_NORM;
+			continue;
+		}
+		if (c == '/' && i+1 < cols && t[i+1] == '/') {
+			st = HL_CMT; a[i] = HL_CMT; continue;
+		}
+		if (c == '/' && i+1 < cols && t[i+1] == '*') {
+			st = HL_CMT; a[i] = HL_CMT; continue;
+		}
+		if (c == '"') { st = HL_STR; a[i] = HL_STR; continue; }
+		if (c == '#' && st == HL_NORM) {
+			int j = i + 1;
+			while (j < cols && t[j] == ' ') j++;
+			int ws = j;
+			while (j < cols && ((t[j]>='a'&&t[j]<='z')||(t[j]>='A'&&t[j]<='Z'))) j++;
+			if (j > ws && is_ckw(t+ws, j-ws)) {
+				for (int k = i; k < j; k++) a[k] = HL_PRE;
+				i = j - 1; continue;
+			}
+		}
+		if ((c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_') {
+			int s = i;
+			while (i < cols && ((t[i]>='a'&&t[i]<='z')||(t[i]>='A'&&t[i]<='Z')||
+				(t[i]>='0'&&t[i]<='9')||t[i]=='_')) i++;
+			int isk = is_ckw(t+s, i-s);
+			for (int j = s; j < i; j++) a[j] = isk ? HL_KW : HL_NORM;
+			i--; continue;
+		}
+		if (c>='0' && c<='9') {
+			a[i] = HL_NUM; continue;
+		}
+		a[i] = HL_NORM;
+	}
+}
 
 static void	hash(VIDEO *);
 static void	uline(int, VIDEO *, VIDEO *);
@@ -4782,6 +4895,7 @@ update(void)
 				for (j=0; j<llength(lp); ++j)
 					vtputc(lgetc(lp, j));
 				vteeol();
+				hl_line(vscreen[i], ncol);
 			} else if ((wp->w_flag&(WFEDIT|WFHARD)) != 0) {
 				hflag = TRUE;
 				while (i < wp->w_toprow+wp->w_ntrows) {
@@ -4794,6 +4908,7 @@ update(void)
 						lp = lforw(lp);
 					}
 					vteeol();
+					hl_line(vscreen[i], ncol);
 					++i;
 				}
 			}
@@ -4919,14 +5034,23 @@ uline(int row, VIDEO * vvp, VIDEO * pvp)
 	register char	*cp5;
 	register int	nbflag;
 
-	if (vvp->v_color != pvp->v_color) {
+	if (vvp->v_color == CTEXT) {
+		int col, ca = -1;
 		ttmove(row, 0);
-		ttcolor(vvp->v_color);
-		cp1 = &vvp->v_text[0];
-		cp2 = &vvp->v_text[ncol];
-		while (cp1 != cp2) {
-			ttputc(*cp1++);
-			++ttcol;
+		for (col = 0; col < ncol; col++) {
+			if (vvp->v_attr[col] != ca) {
+				ca = vvp->v_attr[col];
+				if (ca >= 0 && ca <= HL_PRE) {
+					const char *s = hl_colors[ca];
+					while (*s) ttputc(*s++);
+				}
+			}
+			ttputc(vvp->v_text[col]);
+			ttcol = col + 1;
+		}
+		if (ca != HL_NORM) {
+			const char *s = hl_colors[HL_NORM];
+			while (*s) ttputc(*s++);
 		}
 		return;
 	}
