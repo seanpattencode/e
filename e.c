@@ -506,11 +506,9 @@ ttgetc(void)
 	        const char*b=strrchr(curbp->b_fname,'/');b=b?b+1:curbp->b_fname;
 	        while(n>0&&p<ib+n){struct inotify_event*e=(void*)p;
 	            if(e->len&&!strcmp(e->name,b))hit=1;p+=sizeof(*e)+e->len;}
-	        if(hit&&!(curbp->b_flag&BFCHG)){int ln=0,off=curwp->w_doto;LINE*lp;
-	            for(lp=lforw(curbp->b_linep);lp!=curwp->w_dotp&&lp!=curbp->b_linep;lp=lforw(lp))ln++;
-	            readin(curbp->b_fname);
-	            for(lp=lforw(curbp->b_linep);ln>0&&lp!=curbp->b_linep;ln--)lp=lforw(lp);
-	            curwp->w_dotp=lp;curwp->w_doto=off<llength(lp)?off:llength(lp);
+	        if(hit&&!(curbp->b_flag&BFCHG)){LINE*lp;readin(curbp->b_fname);
+	            for(lp=lforw(curbp->b_linep);lforw(lp)!=curbp->b_linep;lp=lforw(lp));
+	            curwp->w_dotp=lp;curwp->w_doto=llength(lp);
 	            curwp->w_flag|=WFHARD;update();ttflush();}}
 	    if(FD_ISSET(0,&r)){int n=read(0,rbuf,sizeof rbuf);if(n>0){rh=1;rt=n;return rbuf[0];}}}
 }
@@ -4941,7 +4939,7 @@ update(void)
 		curwp->w_flag |= WFHARD;
 	{int t=0,a=0,h;LINE*p;for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){if(p==curwp->w_linep)a=t;t++;}
 	h=curwp->w_ntrows;if(t<h)t=h;sb_top=curwp->w_toprow+a*h/t;sb_bot=sb_top+h/6;if(sb_bot<sb_top+4)sb_bot=sb_top+4;if(sb_bot>sb_top+h-1)sb_bot=sb_top+h-1;}
-	{int _i=0,_c=0,_oh=hoff;while(_i<curwp->w_doto){if(lgetc(curwp->w_dotp,_i)=='\t')_c|=7;_i++;_c++;}hoff=_c>ncol-4?_c-ncol+8:0;if(hoff!=_oh)curwp->w_flag|=WFHARD;}
+	{int _i=0,_c=0,_oh=hoff;while(_i<curwp->w_doto){if(lgetc(curwp->w_dotp,_i)=='\t')_c|=7;_i++;_c++;}hoff=_c>ncol-8?_c-ncol+8:0;if(hoff!=_oh)curwp->w_flag|=WFHARD;}
 	wp = wheadp;
 	while (wp != NULL) {
 		if (wp->w_flag != 0) {
