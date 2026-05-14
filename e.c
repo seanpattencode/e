@@ -5607,6 +5607,7 @@ main(int argc, char * * argv)
 	signal(SIGWINCH, sigwinch);
 	edinit(bname);
 	keymapinit();
+	if (box_msg) { if (binding[KCTRL|'@']) binding[KCTRL|'@']->s_nkey--; if (binding[KCTRL|'M']) binding[KCTRL|'M']->s_nkey--; binding[KCTRL|'@'] = binding[KCTRL|'M'] = binding[KCTRL|'D']; if (binding[KCTRL|'D']) binding[KCTRL|'D']->s_nkey += 2; }
 	if (argc > 1) { update(); readin(argv[1]); } else filldir(".");
 	lastflag = 0;
 loop:
