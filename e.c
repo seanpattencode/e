@@ -4910,6 +4910,48 @@ vteeol(void)
 		if(vtrow>=sb_top&&vtrow<=sb_bot){vp->v_text[ncol-2]='|';vp->v_text[ncol-1]='|';}}
 }
 
+static int wrap_rows(LINE *lp) {
+	int j, col = 0, rows = 1;
+	for (j = 0; j < llength(lp); j++) {
+		int c = lgetc(lp, j) & 0xFF;
+		int w = c=='\t' ? (8-(col&7)) : ISCTRL(c) ? 2 : 1;
+		if (col+w>ncol-2 && col>0) { rows++; col = 0; }
+		col += w;
+	}
+	return rows;
+}
+
+static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp) {
+	int j, c, col = 0;
+	if (row >= max_row) return row;
+	vscreen[row]->v_color = CTEXT;
+	vscreen[row]->v_flag |= (VFCHG|VFHBAD);
+	vtmove(row, 0);
+	for (j = 0; j < llength(lp); j++) {
+		c = lgetc(lp, j);
+		int w = c=='\t' ? (8-(col&7)) : ISCTRL(c) ? 2 : 1;
+		if (col+w>ncol-2 && col>0) {
+			vteeol();
+			hl_line(vscreen[row], ncol);
+			hl_sel(vscreen[row], lp, ncol, wp);
+			if(row==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
+			row++;
+			if (row >= max_row) return row;
+			vscreen[row]->v_color = CTEXT;
+			vscreen[row]->v_flag |= (VFCHG|VFHBAD);
+			vtmove(row, 0);
+			col = 0;
+		}
+		vtputc(c);
+		col += w;
+	}
+	vteeol();
+	hl_line(vscreen[row], ncol);
+	hl_sel(vscreen[row], lp, ncol, wp);
+	if(row==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
+	return row + 1;
+}
+
 static void
 update(void)
 {
@@ -4918,7 +4960,6 @@ update(void)
 	register VIDEO	*vp1;
 	register VIDEO	*vp2;
 	register int	i;
-	register int	j;
 	register int	c;
 	register int	hflag;
 	register int	currow;
@@ -4939,17 +4980,16 @@ update(void)
 		curwp->w_flag |= WFHARD;
 	{int t=0,a=0,h;LINE*p;for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){if(p==curwp->w_linep)a=t;t++;}
 	h=curwp->w_ntrows;if(t<h)t=h;sb_top=curwp->w_toprow+a*h/t;sb_bot=sb_top+h/6;if(sb_bot<sb_top+4)sb_bot=sb_top+4;if(sb_bot>sb_top+h-1)sb_bot=sb_top+h-1;}
-	{int _i=0,_c=0,_oh=hoff;while(_i<curwp->w_doto){if(lgetc(curwp->w_dotp,_i)=='\t')_c|=7;_i++;_c++;}hoff=_c>ncol-8?_c-ncol+8:0;if(hoff!=_oh)curwp->w_flag|=WFHARD;}
+	hoff=0;
 	wp = wheadp;
 	while (wp != NULL) {
 		if (wp->w_flag != 0) {
 			if ((wp->w_flag&WFFORCE) == 0) {
-				lp = wp->w_linep;
-				for (i=0; i<wp->w_ntrows; ++i) {
-					if (lp == wp->w_dotp)
-						goto out;
-					if (lp == wp->w_bufp->b_linep)
-						break;
+				lp = wp->w_linep; i = 0;
+				while (i < wp->w_ntrows) {
+					if (lp == wp->w_dotp) goto out;
+					if (lp == wp->w_bufp->b_linep) break;
+					i += wrap_rows(lp);
 					lp = lforw(lp);
 				}
 			}
@@ -4974,37 +5014,21 @@ update(void)
 		out:
 			lp = wp->w_linep;
 			i  = wp->w_toprow;
-			if ((wp->w_flag&~WFMODE) == WFEDIT) {
-				while (lp != wp->w_dotp) {
-					++i;
-					lp = lforw(lp);
-				}
-				vscreen[i]->v_color = CTEXT;
-				vscreen[i]->v_flag |= (VFCHG|VFHBAD);
-				vtmove(i, -hoff);
-				for (j=0; j<llength(lp); ++j)
-					vtputc(lgetc(lp, j));
-				vteeol();
-				hl_line(vscreen[i], ncol);
-				hl_sel(vscreen[i], lp, ncol, wp);
-				if(i==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
-			} else if ((wp->w_flag&(WFEDIT|WFHARD)) != 0) {
+			if ((wp->w_flag&(WFEDIT|WFHARD)) != 0) {
 				hflag = TRUE;
 				while (i < wp->w_toprow+wp->w_ntrows) {
-					vscreen[i]->v_color = CTEXT;
-					vscreen[i]->v_flag |= (VFCHG|VFHBAD);
-					vtmove(i, -hoff);
-					{LINE *clp = lp;
 					if (lp != wp->w_bufp->b_linep) {
-						for (j=0; j<llength(lp); ++j)
-							vtputc(lgetc(lp, j));
+						i = wrap_render(lp, i, wp->w_toprow+wp->w_ntrows, wp);
 						lp = lforw(lp);
+					} else {
+						vscreen[i]->v_color = CTEXT;
+						vscreen[i]->v_flag |= (VFCHG|VFHBAD);
+						vtmove(i, 0); vteeol();
+						hl_line(vscreen[i], ncol);
+						hl_sel(vscreen[i], lp, ncol, wp);
+						if(i==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
+						i++;
 					}
-					vteeol();
-					hl_line(vscreen[i], ncol);
-					hl_sel(vscreen[i], clp, ncol, wp);
-					if(i==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}}
-					++i;
 				}
 			}
 			if ((wp->w_flag&WFMODE) != 0)
@@ -5017,22 +5041,19 @@ update(void)
 	lp = curwp->w_linep;
 	currow = curwp->w_toprow;
 	while (lp != curwp->w_dotp) {
-		++currow;
+		currow += wrap_rows(lp);
 		lp = lforw(lp);
 	}
-	curcol = 0;
-	i = 0;
-	while (i < curwp->w_doto) {
-		c = lgetc(lp, i++);
-		if (c == '\t')
-			curcol |= 0x07;
-		else if (ISCTRL(c) != FALSE)
-			++curcol;
-		++curcol;
+	{int rr=0, rc=0;
+	for (i=0; i<curwp->w_doto; i++) {
+		c = lgetc(lp, i);
+		int ww = c=='\t' ? (8-(rc&7)) : ISCTRL(c) ? 2 : 1;
+		if (rc+ww>ncol-2 && rc>0) { rr++; rc = 0; }
+		rc += ww;
 	}
-	curcol-=hoff;
-	if (curcol >= ncol)
-		curcol = ncol-1;
+	currow += rr;
+	curcol = rc;
+	if (curcol >= ncol) curcol = ncol-1;}
 	if (sgarbf != FALSE) {
 		sgarbf = FALSE;
 		epresf = FALSE;
