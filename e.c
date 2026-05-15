@@ -64,6 +64,7 @@ exit 0
 #include	<sys/wait.h>
 #include	<sys/inotify.h>
 #include	<sys/select.h>
+#include	<signal.h>
 static int dirmode,pmode;
 static unsigned char rbuf[4096];static int rh,rt;
 static char dirsrch[64];
@@ -3480,6 +3481,8 @@ copyregion(int f, int n, int k)
 	register int	s;
 	REGION		region;
 
+	{const char *mp = getenv("M_PID"); int pid = mp ? atoi(mp) : 0;
+	 if (pid > 0) { kill(pid, SIGINT); eprintf("[Interrupt sent]"); return (TRUE); }}
 	if ((s=getregion(&region)) != TRUE)
 		return (s);
 	if ((lastflag&CFKILL) == 0)
