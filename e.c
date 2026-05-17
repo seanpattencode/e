@@ -826,7 +826,7 @@ ttykeymapinit(void)
 	keydup(KHELP,	"help");
 	keydup(KINSERT, "yank");
 	keydup(KREMOVE, "kill-region");
-	keydup(KSELECT, "set-mark");
+	keydup(KSELECT, "goto-eob");
 	keydup(KPREV,	"back-page");
 	keydup(KNEXT,	"forw-page");
 	keydup(KDO,	"execute-macro");
