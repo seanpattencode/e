@@ -756,10 +756,9 @@ loop:
 				if(row>=0 && row<curwp->w_ntrows) {
 					for(lp=curwp->w_linep;row>0&&lp!=curbp->b_linep;row--)lp=lforw(lp);
 					curwp->w_dotp=lp;{int i,cc;for(i=cc=0;i<llength(lp)&&cc<x;cc=lgetc(lp,i++)==9?(cc|7)+1:cc+1){}curwp->w_doto=i;}
-					if(ch=='M'){if(b>=128&&!(b&32)){backdir(0, 1, KRANDOM);}else if(!(b&3)&&!(b&32)){if(dirmode){char f[80];int i,nn=llength(lp);
+					if(ch=='M'){if(b>=128&&!(b&32)){backdir(0, 1, KRANDOM);}else if(!(b&3)&&!(b&32)&&dirmode){char f[80];int i,nn=llength(lp);
 						for(i=0;i<nn;i++)f[i]=lgetc(lp,i);f[nn]=0;
-						if(n>1&&f[0]=='>')filldir(f+2);else{dirmode=0;readin(f+2);}}
-					else{curwp->w_markp=lp;curwp->w_marko=curwp->w_doto;}}}
+						if(n>1&&f[0]=='>')filldir(f+2);else{dirmode=0;readin(f+2);}}}
 					curwp->w_flag|=WFMOVE; update();
 				}
 				goto loop;
