@@ -65,7 +65,7 @@ exit 0
 #include	<sys/inotify.h>
 #include	<sys/select.h>
 #include	<signal.h>
-static int dirmode,pmode;
+static int dirmode,pmode,nosb;
 static unsigned char rbuf[4096];static int rh,rt;
 static char dirsrch[64];
 static int dirsl;
@@ -740,7 +740,7 @@ loop:
 				else{if(sk>0)sk--; else{LINE*ln=lback(p);if(ln!=curbp->b_linep){p=ln;sk=wrap_rows(p)-1;}}}}
 				curwp->w_linep=p;curwp->w_skip=sk;}curwp->w_flag|=WFHARD;update();goto loop;}
 				x--; y--; row=y-curwp->w_toprow;
-				if(x>=ncol-2&&y>0&&row>=0&&row<curwp->w_ntrows){int t=0;LINE*p;
+				if(!nosb&&x>=ncol-2&&y>0&&row>=0&&row<curwp->w_ntrows){int t=0;LINE*p;
 					for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p))t+=wrap_rows(p);
 					int g=row*t/curwp->w_ntrows,seen=0;LINE*tl=lforw(curbp->b_linep);int tsk=0;
 					for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){int wr=wrap_rows(p);if(seen+wr>g){tl=p;tsk=g-seen;break;}seen+=wr;}
@@ -4917,7 +4917,7 @@ vteeol(void)
 		vp->v_text[vtcol++] = ' ';
 	if(vtrow==0){const char*bt="+file";int bi;for(bi=0;bt[bi];bi++)vp->v_text[ncol-8+bi]=bt[bi];
 		vp->v_text[ncol-3]='[';vp->v_text[ncol-2]='X';vp->v_text[ncol-1]=']';}
-	else if(vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
+	else if(!nosb&&vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
 		if(vtrow>=sb_top&&vtrow<=sb_bot){vp->v_text[ncol-2]='|';vp->v_text[ncol-1]='|';}}
 }
 
@@ -5651,8 +5651,12 @@ main(int argc, char * * argv)
 	int		tail_flag = 0;
 
 	strcpy(bname, "main");
-	if (argc >= 3 && !strcmp(argv[1], "--box")) { box_msg = argv[2]; argv += 2; argc -= 2; }
-	if (argc >= 2 && !strcmp(argv[1], "--tail")) { tail_flag = 1; argv++; argc--; }
+	while (argc >= 2) {
+		if (argc >= 3 && !strcmp(argv[1], "--box")) { box_msg = argv[2]; argv += 2; argc -= 2; }
+		else if (!strcmp(argv[1], "--tail")) { tail_flag = 1; argv++; argc--; }
+		else if (!strcmp(argv[1], "--nosb")) { nosb = 1; argv++; argc--; }
+		else break;
+	}
 	if (argc > 1)
 		makename(bname, argv[1]);
 	vtinit();
