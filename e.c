@@ -72,6 +72,10 @@ static int dirsl;
 static int sb_top, sb_bot;
 static int uc[2048],ut,ul,hoff;
 static char *box_msg;
+static int fold_a=1;
+#define LSA(lp) (llength(lp)>=12&&!memcmp((lp)->l_text,"## a-loaded ",12))
+#define LSE(lp) (llength(lp)>=15&&!memcmp((lp)->l_text,"## a-loaded-end",15))
+#define FSKIP(lp,bp) do{lp=lforw(lp);while(lp!=(bp)->b_linep&&!LSE(lp))lp=lforw(lp);if(lp!=(bp)->b_linep)lp=lforw(lp);}while(0)
 
 #define	CVMVAS	1
 
@@ -742,7 +746,7 @@ loop:
 					for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){int wr=wrap_rows(p);if(seen+wr>g){tl=p;tsk=g-seen;break;}seen+=wr;}
 					curwp->w_linep=curwp->w_dotp=tl;curwp->w_skip=tsk;curwp->w_doto=0;curwp->w_flag|=WFHARD;update();goto loop;}
 				if(b&32)goto loop;
-				if(y==0&&ch=='M'){if(x>=ncol-3)quit(0,0,0);else if(x>=ncol-8&&x<ncol-3){
+				if(y==0&&ch=='M'){if(x>=ncol-3){quit(0,0,0);goto loop;}else if(x>=ncol-8&&x<ncol-3){
 					char fn[NFILEN]="";FILE*fp;
 					eprintf("[Pick a file...]");update();ttflush();
 #ifdef __APPLE__
@@ -752,9 +756,10 @@ loop:
 #endif
 					if(fp){if(fgets(fn,NFILEN,fp))fn[strcspn(fn,"\n")]=0;pclose(fp);}
 					if(fn[0]){readin(fn);sgarbf=TRUE;}else eprintf("[Cancelled]");
-					}goto loop;}
+					goto loop;}}
 				if(row>=0 && row<curwp->w_ntrows) {
-					for(lp=curwp->w_linep;row>0&&lp!=curbp->b_linep;row--)lp=lforw(lp);
+					for(lp=curwp->w_linep;row>0&&lp!=curbp->b_linep;row--){if(fold_a&&LSA(lp))FSKIP(lp,curbp);else lp=lforw(lp);}
+					if(ch=='M'&&LSA(lp)){fold_a=!fold_a;curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFHARD;sgarbf=TRUE;update();goto loop;}
 					curwp->w_dotp=lp;{int i,cc;for(i=cc=0;i<llength(lp)&&cc<x;cc=lgetc(lp,i++)==9?(cc|7)+1:cc+1){}curwp->w_doto=i;}
 					if(ch=='M'){if(b>=128&&!(b&32)){backdir(0, 1, KRANDOM);}else if(!(b&3)&&!(b&32)&&dirmode){char f[80];int i,nn=llength(lp);
 						for(i=0;i<nn;i++)f[i]=lgetc(lp,i);f[nn]=0;
@@ -5028,6 +5033,9 @@ update(void)
 			wp->w_skip = 0;
 			wp->w_flag |= WFHARD;
 		out:
+			if (fold_a && wp->w_linep != wp->w_bufp->b_linep) { LINE *p;
+			    for (p=lback(wp->w_linep); p!=wp->w_bufp->b_linep; p=lback(p)) {
+			        if (LSE(p)) break; if (LSA(p)) { wp->w_linep=p; break; } } }
 			lp = wp->w_linep;
 			i  = wp->w_toprow;
 			if ((wp->w_flag&(WFEDIT|WFHARD)) != 0) {
@@ -5035,9 +5043,15 @@ update(void)
 				int skip = wp->w_skip;
 				while (i < wp->w_toprow+wp->w_ntrows) {
 					if (lp != wp->w_bufp->b_linep) {
+						if (fold_a && LSA(lp)) {
+							vscreen[i]->v_color=CTEXT; vscreen[i]->v_flag|=(VFCHG|VFHBAD); vtmove(i,0);
+							{const char*m="[+ click to expand a-loaded]";while(*m)vtputc(*m++);}
+							vteeol(); hl_line(vscreen[i],ncol); i++; FSKIP(lp,wp->w_bufp);
+						} else {
 						i = wrap_render(lp, i, wp->w_toprow+wp->w_ntrows, wp, skip);
 						skip = 0;
 						lp = lforw(lp);
+						}
 					} else {
 						vscreen[i]->v_color = CTEXT;
 						vscreen[i]->v_flag |= (VFCHG|VFHBAD);
