@@ -5655,6 +5655,7 @@ main(int argc, char * * argv)
 		if (argc >= 3 && !strcmp(argv[1], "--box")) { box_msg = argv[2]; argv += 2; argc -= 2; }
 		else if (!strcmp(argv[1], "--tail")) { tail_flag = 1; argv++; argc--; }
 		else if (!strcmp(argv[1], "--nosb")) { nosb = 1; argv++; argc--; }
+		else if (!strcmp(argv[1], "--nofold")) { fold_a = 0; argv++; argc--; }
 		else break;
 	}
 	if (argc > 1)
