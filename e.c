@@ -2717,13 +2717,16 @@ readin(char * fname)
 	char		*line;
 
 	if(filldir(fname))return TRUE;
-	{size_t l=strlen(fname);if(l>4&&!strcmp(fname+l-4,".pdf")){if(!fork()){
+	{FILE*f=fopen(fname,"r");if(f){char b[512];size_t n=fread(b,1,sizeof b,f),k=0;fclose(f);
+	int bin=n>=4&&!memcmp(b,"%PDF",4);
+	while(!bin&&k<n){unsigned c=(unsigned char)b[k++];if(c<32&&c!=9&&c!=10&&c!=12&&c!=13)bin=1;}
+	if(bin){if(!fork()){
 #ifdef __APPLE__
 	execlp("open","open",fname,(char*)0);
 #else
 	execlp("xdg-open","xdg-open",fname,(char*)0);
 #endif
-	_exit(0);}eprintf("[opened %s]",fname);return TRUE;}}
+	_exit(0);}eprintf("[opened %s]",fname);return TRUE;}}}
 	bp = curbp;
 	if ((s=bclear(bp)) != TRUE)
 		return (s);
