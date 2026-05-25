@@ -2717,6 +2717,13 @@ readin(char * fname)
 	char		*line;
 
 	if(filldir(fname))return TRUE;
+	{size_t l=strlen(fname);if(l>4&&!strcmp(fname+l-4,".pdf")){if(!fork()){
+#ifdef __APPLE__
+	execlp("open","open",fname,(char*)0);
+#else
+	execlp("xdg-open","xdg-open",fname,(char*)0);
+#endif
+	_exit(0);}eprintf("[opened %s]",fname);return TRUE;}}
 	bp = curbp;
 	if ((s=bclear(bp)) != TRUE)
 		return (s);
