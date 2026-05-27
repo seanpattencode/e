@@ -316,6 +316,7 @@ static int	isearch(int);
 static int	getkbd(void);
 static int	speak_line(int, int, int);
 static int	stop_speak(int, int, int);
+static int	speak_running(void);
 static int	eyesno(char *);
 static int	writemsg(char *);
 static int	readmsg(int, int, int);
@@ -1740,6 +1741,7 @@ static int	upperregion(int, int, int);
 static int	spawncli(int, int, int);
 static int	speak_line(int, int, int);
 static int	stop_speak(int, int, int);
+static int	speak_running(void);
 
 static int	reposition(int, int, int);
 static int	refresh(int, int, int);
@@ -4941,12 +4943,11 @@ vteeol(void)
 	vp = vscreen[vtrow];
 	while (vtcol < ncol)
 		vp->v_text[vtcol++] = ' ';
-	if(vtrow==0){const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;
-		/* pre-clear 31-col strip so long first-line content can't bleed into buttons.
-		 * Layout: [SPEAK] (7) · [STOP] (6) · ·  [ADD FILE] (10) · ·  [X] (3) = 31 cols incl 5 spaces */
+	if(vtrow==0){const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;int active=speak_running();
+		/* pre-clear 31-col strip; [STOP] painted only while `a say` is alive */
 		for(bi=ncol-31;bi<ncol;bi++)vp->v_text[bi]=' ';
 		for(bi=0;sp[bi];bi++){vp->v_text[ncol-31+bi]=sp[bi];vp->v_attr[ncol-31+bi]=HL_NUM;}
-		for(bi=0;st[bi];bi++){vp->v_text[ncol-23+bi]=st[bi];vp->v_attr[ncol-23+bi]=HL_KW;}
+		if(active)for(bi=0;st[bi];bi++){vp->v_text[ncol-23+bi]=st[bi];vp->v_attr[ncol-23+bi]=HL_KW;}
 		for(bi=0;bt[bi];bi++){vp->v_text[ncol-15+bi]=bt[bi];vp->v_attr[ncol-15+bi]=HL_STR;}
 		for(bi=0;xx[bi];bi++){vp->v_text[ncol-3+bi]=xx[bi];vp->v_attr[ncol-3+bi]=HL_KW;}}
 	else if(!nosb&&vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
@@ -5851,6 +5852,15 @@ write_pos(void)
 /* speak_pid tracks the PID of the most recent `a say` child so [STOP] / Ctrl-Y can kill it.
  * Child setpgid()s into its own group so kill(-pid, SIGKILL) takes out uvx/python/ffmpeg/ffplay too. */
 static pid_t speak_pid = 0;
+static int
+speak_running(void)
+{
+	int s;
+	if (speak_pid <= 0) return 0;
+	if (waitpid(speak_pid, &s, WNOHANG) == speak_pid) { speak_pid = 0; return 0; }
+	if (kill(speak_pid, 0) < 0) { speak_pid = 0; return 0; }
+	return 1;
+}
 static int
 stop_speak(int f, int n, int k)
 {
