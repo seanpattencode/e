@@ -315,6 +315,7 @@ static void	is_dspl(char *, int);
 static int	isearch(int);
 static int	getkbd(void);
 static int	speak_line(int, int, int);
+static int	stop_speak(int, int, int);
 static int	eyesno(char *);
 static int	writemsg(char *);
 static int	readmsg(int, int, int);
@@ -753,7 +754,8 @@ loop:
 					curwp->w_linep=curwp->w_dotp=tl;curwp->w_skip=tsk;curwp->w_doto=0;curwp->w_flag|=WFHARD;update();goto loop;}
 				if(b&32)goto loop;
 				if(y==0&&ch=='M'){if(x>=ncol-3){quit(0,0,0);goto loop;}
-				else if(x>=ncol-24&&x<ncol-17){speak_line(0,0,0);goto loop;}
+				else if(x>=ncol-31&&x<ncol-24){speak_line(0,0,0);goto loop;}
+				else if(x>=ncol-23&&x<ncol-17){stop_speak(0,0,0);goto loop;}
 				else if(x>=ncol-15&&x<ncol-5){
 					char fn[NFILEN]="";FILE*fp;
 					eprintf("[Pick a file...]");update();ttflush();
@@ -1737,6 +1739,7 @@ static int	upperregion(int, int, int);
 
 static int	spawncli(int, int, int);
 static int	speak_line(int, int, int);
+static int	stop_speak(int, int, int);
 
 static int	reposition(int, int, int);
 static int	refresh(int, int, int);
@@ -1790,6 +1793,7 @@ KEY	key[] = {
 	KCTRL|'R',	backisearch,	"back-i-search",
 	KCTRL|'S',	filesave,	"file-save",
 	KCTRL|'T',	speak_line,	"speak-line",
+	KCTRL|'Y',	stop_speak,	"stop-speak",
 	KCTRL|'V',	yank,		"yank",
 	KCTRL|'W',	quit,		"quit",
 	KCTRL|'X',	killregion,	"kill-region",
@@ -4937,11 +4941,12 @@ vteeol(void)
 	vp = vscreen[vtrow];
 	while (vtcol < ncol)
 		vp->v_text[vtcol++] = ' ';
-	if(vtrow==0){const char*sp="[SPEAK]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;
-		/* pre-clear 24-col strip so long first-line content can't bleed into buttons.
-		 * Layout: [SPEAK] (7) · ·  [ADD FILE] (10) · ·  [X] (3)  = 24 cols incl. 4 spaces */
-		for(bi=ncol-24;bi<ncol;bi++)vp->v_text[bi]=' ';
-		for(bi=0;sp[bi];bi++){vp->v_text[ncol-24+bi]=sp[bi];vp->v_attr[ncol-24+bi]=HL_NUM;}
+	if(vtrow==0){const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;
+		/* pre-clear 31-col strip so long first-line content can't bleed into buttons.
+		 * Layout: [SPEAK] (7) · [STOP] (6) · ·  [ADD FILE] (10) · ·  [X] (3) = 31 cols incl 5 spaces */
+		for(bi=ncol-31;bi<ncol;bi++)vp->v_text[bi]=' ';
+		for(bi=0;sp[bi];bi++){vp->v_text[ncol-31+bi]=sp[bi];vp->v_attr[ncol-31+bi]=HL_NUM;}
+		for(bi=0;st[bi];bi++){vp->v_text[ncol-23+bi]=st[bi];vp->v_attr[ncol-23+bi]=HL_KW;}
 		for(bi=0;bt[bi];bi++){vp->v_text[ncol-15+bi]=bt[bi];vp->v_attr[ncol-15+bi]=HL_STR;}
 		for(bi=0;xx[bi];bi++){vp->v_text[ncol-3+bi]=xx[bi];vp->v_attr[ncol-3+bi]=HL_KW;}}
 	else if(!nosb&&vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
@@ -4981,7 +4986,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 			vteeol();
 			hl_line(vscreen[row], ncol);
 			hl_sel(vscreen[row], lp, ncol, wp);
-			if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-24+bi]=HL_NUM;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
+			if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
 			row++;
 			if (row >= max_row) return row;
 			vscreen[row]->v_color = CTEXT;
@@ -4995,7 +5000,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 	vteeol();
 	hl_line(vscreen[row], ncol);
 	hl_sel(vscreen[row], lp, ncol, wp);
-	if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-24+bi]=HL_NUM;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
+	if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
 	return row + 1;
 }
 
@@ -5085,7 +5090,7 @@ update(void)
 						vtmove(i, 0); vteeol();
 						hl_line(vscreen[i], ncol);
 						hl_sel(vscreen[i], lp, ncol, wp);
-						if(i==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-24+bi]=HL_NUM;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
+						if(i==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
 						i++;
 					}
 				}
@@ -5843,21 +5848,36 @@ write_pos(void)
 	if (f) { fprintf(f, "%ld\n", total); fclose(f); }
 }
 
+/* speak_pid tracks the PID of the most recent `a say` child so [STOP] / Ctrl-Y can kill it.
+ * Child setpgid()s into its own group so kill(-pid, SIGKILL) takes out uvx/python/ffmpeg/ffplay too. */
+static pid_t speak_pid = 0;
+static int
+stop_speak(int f, int n, int k)
+{
+	if (speak_pid > 0) { kill(-speak_pid, SIGKILL); speak_pid = 0; }
+	return TRUE;
+}
 /* speak current line via `a say` (background, doesn't block editor) */
 static int
 speak_line(int f, int n, int k)
 {
 	LINE *lp = curwp->w_dotp;
 	int len = llength(lp);
+	pid_t p;
 	if (len <= 0) return TRUE;
-	if (fork() == 0) {
-		char *text = malloc((size_t)len + 1);
-		memcpy(text, lp->l_text, (size_t)len); text[len] = 0;
-		char *args[4];
-		args[0] = "a"; args[1] = "say"; args[2] = text; args[3] = NULL;
-		execvp("a", args);
+	if (speak_pid > 0) { kill(-speak_pid, SIGKILL); speak_pid = 0; }
+	p = fork();
+	if (p == 0) {
+		setpgid(0, 0);
+		{ char *text = malloc((size_t)len + 1);
+		  memcpy(text, lp->l_text, (size_t)len); text[len] = 0;
+		  { char *args[4];
+		    args[0] = "a"; args[1] = "say"; args[2] = text; args[3] = NULL;
+		    execvp("a", args); }
+		}
 		_exit(127);
 	}
+	speak_pid = p;
 	return TRUE;
 }
 
