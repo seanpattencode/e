@@ -73,6 +73,11 @@ static int sb_top, sb_bot;
 static int uc[2048],ut,ul,hoff;
 static char *box_msg;
 static int fold_a=1;
+/* read-only / bookmark-mode globals (for `a book read` integration) */
+static int ro_flag;
+static long start_off = -1;
+static const char *pos_out_path;
+static void write_pos(void);
 #define LSA(lp) (llength(lp)>=12&&!memcmp((lp)->l_text,"## a-loaded ",12))
 #define LSE(lp) (llength(lp)>=15&&!memcmp((lp)->l_text,"## a-loaded-end",15))
 #define FSKIP(lp,bp) do{lp=lforw(lp);while(lp!=(bp)->b_linep&&!LSE(lp))lp=lforw(lp);if(lp!=(bp)->b_linep)lp=lforw(lp);}while(0)
@@ -1304,6 +1309,7 @@ linsert(int n, int c)
 	register LINE	*lp2;
 	register LINE	*lp3;
 	register int	doto;
+	if (ro_flag) return FALSE;
 	register int	i;
 	register WINDOW	*wp;
 
@@ -1430,6 +1436,7 @@ ldelete(int n, int kflag)
 	register LINE	*dotp;
 	register int	doto;
 	register int	chunk;
+	if (ro_flag) return FALSE;
 	register WINDOW	*wp;
 
 	while (n != 0) {
@@ -1726,6 +1733,7 @@ static int	lowerregion(int, int, int);
 static int	upperregion(int, int, int);
 
 static int	spawncli(int, int, int);
+static int	speak_line(int, int, int);
 
 static int	reposition(int, int, int);
 static int	refresh(int, int, int);
@@ -1778,6 +1786,7 @@ KEY	key[] = {
 	KCTRL|'Q',	quit,		"quit",
 	KCTRL|'R',	backisearch,	"back-i-search",
 	KCTRL|'S',	filesave,	"file-save",
+	KCTRL|'T',	speak_line,	"speak-line",
 	KCTRL|'V',	yank,		"yank",
 	KCTRL|'W',	quit,		"quit",
 	KCTRL|'X',	killregion,	"kill-region",
@@ -5666,6 +5675,9 @@ main(int argc, char * * argv)
 		else if (!strcmp(argv[1], "--tail")) { tail_flag = 1; argv++; argc--; }
 		else if (!strcmp(argv[1], "--nosb")) { nosb = 1; argv++; argc--; }
 		else if (!strcmp(argv[1], "--nofold")) { fold_a = 0; argv++; argc--; }
+		else if (!strcmp(argv[1], "-r")) { ro_flag = 1; argv++; argc--; }
+		else if (argv[1][0] == '+' && argv[1][1]) { start_off = atol(argv[1]+1); argv++; argc--; }
+		else if (argc >= 3 && !strcmp(argv[1], "--pos-out")) { pos_out_path = argv[2]; argv += 2; argc -= 2; }
 		else break;
 	}
 	if (argc > 1)
@@ -5679,6 +5691,11 @@ main(int argc, char * * argv)
 	if (argc > 1) { update(); readin(argv[1]); } else filldir(".");
 	if (tail_flag) { LINE*lp; for(lp=lforw(curbp->b_linep);lforw(lp)!=curbp->b_linep;lp=lforw(lp));
 	    curwp->w_dotp=lp; curwp->w_doto=llength(lp); curwp->w_flag|=WFHARD; }
+	if (start_off >= 0) {
+		LINE *lp = lforw(curbp->b_linep); long off = start_off;
+		while (lp != curbp->b_linep && off > llength(lp)) { off -= llength(lp) + 1; lp = lforw(lp); }
+		if (lp != curbp->b_linep) { curwp->w_dotp = lp; curwp->w_doto = (int)off; curwp->w_flag |= WFHARD; }
+	}
 	lastflag = 0;
 loop:
 	if(resized){resized=0;refresh(0,0,0);}
@@ -5799,8 +5816,41 @@ static int
 quit(int f, int n, int k)
 {
 	if (box_msg && (curbp->b_flag & BFCHG) && filesave(0,0,0) != TRUE) return FALSE;
+	write_pos();
 	vttidy();
 	exit(GOOD);
+}
+
+static void
+write_pos(void)
+{
+	long total = 0;
+	LINE *p;
+	FILE *f;
+	if (!pos_out_path) return;
+	for (p = lforw(curbp->b_linep); p != curwp->w_dotp && p != curbp->b_linep; p = lforw(p))
+		total += llength(p) + 1;
+	if (p == curwp->w_dotp) total += curwp->w_doto;
+	f = fopen(pos_out_path, "w");
+	if (f) { fprintf(f, "%ld\n", total); fclose(f); }
+}
+
+/* speak current line via `a say` (background, doesn't block editor) */
+static int
+speak_line(int f, int n, int k)
+{
+	LINE *lp = curwp->w_dotp;
+	int len = llength(lp);
+	if (len <= 0) return TRUE;
+	if (fork() == 0) {
+		char *text = malloc((size_t)len + 1);
+		memcpy(text, lp->l_text, (size_t)len); text[len] = 0;
+		char *args[4];
+		args[0] = "a"; args[1] = "say"; args[2] = text; args[3] = NULL;
+		execvp("a", args);
+		_exit(127);
+	}
+	return TRUE;
 }
 
 static int
