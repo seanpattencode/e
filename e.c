@@ -753,8 +753,8 @@ loop:
 					curwp->w_linep=curwp->w_dotp=tl;curwp->w_skip=tsk;curwp->w_doto=0;curwp->w_flag|=WFHARD;update();goto loop;}
 				if(b&32)goto loop;
 				if(y==0&&ch=='M'){if(x>=ncol-3){quit(0,0,0);goto loop;}
-				else if(x>=ncol-16&&x<ncol-9){speak_line(0,0,0);goto loop;}
-				else if(x>=ncol-8&&x<ncol-3){
+				else if(x>=ncol-24&&x<ncol-17){speak_line(0,0,0);goto loop;}
+				else if(x>=ncol-15&&x<ncol-5){
 					char fn[NFILEN]="";FILE*fp;
 					eprintf("[Pick a file...]");update();ttflush();
 #ifdef __APPLE__
@@ -4937,11 +4937,12 @@ vteeol(void)
 	vp = vscreen[vtrow];
 	while (vtcol < ncol)
 		vp->v_text[vtcol++] = ' ';
-	if(vtrow==0){const char*sp="[SPEAK]";const char*bt="+file";const char*xx="[X]";int bi;
-		/* pre-clear 16-col strip so long first-line content can't bleed into buttons */
-		for(bi=ncol-16;bi<ncol;bi++)vp->v_text[bi]=' ';
-		for(bi=0;sp[bi];bi++){vp->v_text[ncol-16+bi]=sp[bi];vp->v_attr[ncol-16+bi]=HL_NUM;}
-		for(bi=0;bt[bi];bi++){vp->v_text[ncol-8+bi]=bt[bi];vp->v_attr[ncol-8+bi]=HL_STR;}
+	if(vtrow==0){const char*sp="[SPEAK]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;
+		/* pre-clear 24-col strip so long first-line content can't bleed into buttons.
+		 * Layout: [SPEAK] (7) · ·  [ADD FILE] (10) · ·  [X] (3)  = 24 cols incl. 4 spaces */
+		for(bi=ncol-24;bi<ncol;bi++)vp->v_text[bi]=' ';
+		for(bi=0;sp[bi];bi++){vp->v_text[ncol-24+bi]=sp[bi];vp->v_attr[ncol-24+bi]=HL_NUM;}
+		for(bi=0;bt[bi];bi++){vp->v_text[ncol-15+bi]=bt[bi];vp->v_attr[ncol-15+bi]=HL_STR;}
 		for(bi=0;xx[bi];bi++){vp->v_text[ncol-3+bi]=xx[bi];vp->v_attr[ncol-3+bi]=HL_KW;}}
 	else if(!nosb&&vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
 		if(vtrow>=sb_top&&vtrow<=sb_bot){vp->v_text[ncol-2]='|';vp->v_text[ncol-1]='|';}}
