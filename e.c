@@ -4981,7 +4981,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 			vteeol();
 			hl_line(vscreen[row], ncol);
 			hl_sel(vscreen[row], lp, ncol, wp);
-			if(row==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
+			if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-24+bi]=HL_NUM;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
 			row++;
 			if (row >= max_row) return row;
 			vscreen[row]->v_color = CTEXT;
@@ -4995,7 +4995,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 	vteeol();
 	hl_line(vscreen[row], ncol);
 	hl_sel(vscreen[row], lp, ncol, wp);
-	if(row==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
+	if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-24+bi]=HL_NUM;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
 	return row + 1;
 }
 
@@ -5085,7 +5085,7 @@ update(void)
 						vtmove(i, 0); vteeol();
 						hl_line(vscreen[i], ncol);
 						hl_sel(vscreen[i], lp, ncol, wp);
-						if(i==0){int bi;for(bi=0;bi<5;bi++)vscreen[0]->v_attr[ncol-8+bi]=HL_STR;}
+						if(i==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-24+bi]=HL_NUM;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
 						i++;
 					}
 				}
