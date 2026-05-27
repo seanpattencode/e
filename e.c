@@ -314,6 +314,7 @@ static void	is_prompt(int, int, int);
 static void	is_dspl(char *, int);
 static int	isearch(int);
 static int	getkbd(void);
+static int	speak_line(int, int, int);
 static int	eyesno(char *);
 static int	writemsg(char *);
 static int	readmsg(int, int, int);
@@ -751,7 +752,9 @@ loop:
 					for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){int wr=wrap_rows(p);if(seen+wr>g){tl=p;tsk=g-seen;break;}seen+=wr;}
 					curwp->w_linep=curwp->w_dotp=tl;curwp->w_skip=tsk;curwp->w_doto=0;curwp->w_flag|=WFHARD;update();goto loop;}
 				if(b&32)goto loop;
-				if(y==0&&ch=='M'){if(x>=ncol-3){quit(0,0,0);goto loop;}else if(x>=ncol-8&&x<ncol-3){
+				if(y==0&&ch=='M'){if(x>=ncol-3){quit(0,0,0);goto loop;}
+				else if(x>=ncol-12&&x<ncol-9){speak_line(0,0,0);goto loop;}
+				else if(x>=ncol-8&&x<ncol-3){
 					char fn[NFILEN]="";FILE*fp;
 					eprintf("[Pick a file...]");update();ttflush();
 #ifdef __APPLE__
@@ -4934,7 +4937,9 @@ vteeol(void)
 	vp = vscreen[vtrow];
 	while (vtcol < ncol)
 		vp->v_text[vtcol++] = ' ';
-	if(vtrow==0){const char*bt="+file";int bi;for(bi=0;bt[bi];bi++)vp->v_text[ncol-8+bi]=bt[bi];
+	if(vtrow==0){const char*bt="+file";int bi;
+		vp->v_text[ncol-12]='[';vp->v_text[ncol-11]='s';vp->v_text[ncol-10]=']';
+		for(bi=0;bt[bi];bi++)vp->v_text[ncol-8+bi]=bt[bi];
 		vp->v_text[ncol-3]='[';vp->v_text[ncol-2]='X';vp->v_text[ncol-1]=']';}
 	else if(!nosb&&vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
 		if(vtrow>=sb_top&&vtrow<=sb_bot){vp->v_text[ncol-2]='|';vp->v_text[ncol-1]='|';}}
