@@ -16,9 +16,9 @@ def time_folder_click():
 
     # Start editor without args (directory mode)
     p = subprocess.Popen(
-        ['/home/seanpatten/projects/editor/e'],
+        ['/home/seanpatten/projects/e/e'],
         stdin=slave, stdout=slave, stderr=slave,
-        cwd='/home/seanpatten/projects/editor'
+        cwd='/home/seanpatten/projects/e'
     )
 
     # Wait for initial render and drain

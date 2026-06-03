@@ -19,4 +19,4 @@ sh e.c clean        # remove binary
 
 # Use pre-built binary (no compiler needed)
 
-mkdir -p ~/.local/bin && cp ~/projects/editor/e ~/.local/bin/ && chmod +x ~/.local/bin/e && grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
+mkdir -p ~/.local/bin && cp ~/projects/e/e ~/.local/bin/ && chmod +x ~/.local/bin/e && grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
