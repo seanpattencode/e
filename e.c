@@ -5,7 +5,7 @@ set -e; D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CC=$(compgen -c clang- 2>/dev/null|grep -xE 'clang-[0-9]+'|sort -t- -k2 -rn|head -1)||CC=""
 [[ -z "$CC" ]]&&for c in clang gcc;do command -v $c &>/dev/null&&CC=$c&&break;done
 [[ -z "$CC" ]]&&echo "no C compiler"&&exit 1
-W="-std=gnu89 -Werror -Weverything -Wno-padded -Wno-disabled-macro-expansion -Wno-reserved-id-macro -Wno-documentation -Wno-declaration-after-statement -Wno-unsafe-buffer-usage -Wno-used-but-marked-unused -Wno-unused-parameter -Wno-missing-braces -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-cast-qual -Wno-missing-variable-declarations -Wno-implicit-int-conversion -Wno-conditional-uninitialized -Wno-shadow -Wno-unused-macros -Wno-implicit-fallthrough -Wno-unused-function -Wno-unused-result -Wno-implicit-void-ptr-cast -Wno-c++-keyword --system-header-prefix=/usr/include"
+W="-std=gnu89 -Werror -Weverything -Wno-padded -Wno-disabled-macro-expansion -Wno-reserved-id-macro -Wno-documentation -Wno-declaration-after-statement -Wno-c99-extensions -Wno-gcc-compat -Wno-unsafe-buffer-usage -Wno-used-but-marked-unused -Wno-unused-parameter -Wno-missing-braces -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-cast-qual -Wno-missing-variable-declarations -Wno-implicit-int-conversion -Wno-conditional-uninitialized -Wno-shadow -Wno-unused-macros -Wno-implicit-fallthrough -Wno-unused-function -Wno-unused-result -Wno-implicit-void-ptr-cast -Wno-c++-keyword --system-header-prefix=/usr/include"
 H="-fstack-protector-strong -ftrivial-auto-var-init=zero -D_FORTIFY_SOURCE=2"
 [[ "$(uname -m)" == x86_64 ]]&&H+=" -fstack-clash-protection -fcf-protection"
 case "${1:-build}" in
