@@ -72,6 +72,7 @@ static int dirsl;
 static int sb_top, sb_bot;
 static int uc[2048],ut,ul,hoff;
 static char *box_msg;
+static int wq_flag;	/* -w: write changes on quit/ESC — flow quick-edit mode */
 static int fold_a=1;
 /* read-only / bookmark-mode globals (for `a book read` integration) */
 static int ro_flag;
@@ -5690,6 +5691,7 @@ main(int argc, char * * argv)
 		else if (!strcmp(argv[1], "--nosb")) { nosb = 1; argv++; argc--; }
 		else if (!strcmp(argv[1], "--nofold")) { fold_a = 0; argv++; argc--; }
 		else if (!strcmp(argv[1], "-r")) { ro_flag = 1; argv++; argc--; }
+		else if (!strcmp(argv[1], "-w")) { wq_flag = 1; argv++; argc--; }
 		else if (argv[1][0] == '+' && argv[1][1]) { start_off = atol(argv[1]+1); argv++; argc--; }
 		else if (argc >= 3 && !strcmp(argv[1], "--pos-out")) { pos_out_path = argv[2]; argv += 2; argc -= 2; }
 		else break;
@@ -5829,7 +5831,7 @@ jeffexit(int f, int n, int k)
 static int
 quit(int f, int n, int k)
 {
-	if (box_msg && (curbp->b_flag & BFCHG) && filesave(0,0,0) != TRUE) return FALSE;
+	if ((box_msg || wq_flag) && (curbp->b_flag & BFCHG) && filesave(0,0,0) != TRUE) return FALSE;
 	write_pos();
 	vttidy();
 	exit(GOOD);
