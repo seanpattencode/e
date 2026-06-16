@@ -9,7 +9,7 @@ W="-std=gnu89 -Werror -Weverything -Wno-padded -Wno-disabled-macro-expansion -Wn
 H="-fstack-protector-strong -ftrivial-auto-var-init=zero -D_FORTIFY_SOURCE=2"
 [[ "$(uname -m)" == x86_64 ]]&&H+=" -fstack-clash-protection -fcf-protection"
 case "${1:-build}" in
-build)   $CC $W $H -fsyntax-only "$D/e.c"& $CC -std=gnu89 -O3 -march=native -flto -w -o "$D/e" "$D/e.c";;
+build)   $CC $W $H -fsyntax-only "$D/e.c"& B="-std=gnu89 -O3 -march=native -flto -w";{ [[ "$(uname)" == Linux ]]&&$CC $B -static -o "$D/e" "$D/e.c" 2>/dev/null;}||$CC $B -o "$D/e" "$D/e.c";;
 debug)   $CC $W $H -Wl,-z,relro,-z,now -O1 -g -fsanitize=address,undefined,integer -o "$D/e" "$D/e.c";;
 install) sh "$D/e.c"&&mkdir -p "$HOME/.local/bin"&&ln -sf "$D/e" "$HOME/.local/bin/e"&&echo "✓ ~/.local/bin/e";;
 clean)   rm -f "$D/e";;
@@ -21,7 +21,6 @@ exit 0
 #define	GOOD	0
 
 #define	BDC1	'/'
-#define	GOSLING	1
 
 #define	NROW	66
 #define	NCOL	132
@@ -65,11 +64,10 @@ exit 0
 #include	<sys/inotify.h>
 #include	<sys/select.h>
 #include	<signal.h>
-static int dirmode,pmode,nosb;
+static int dirmode,pmode;
 static unsigned char rbuf[4096];static int rh,rt;
 static char dirsrch[64];
 static int dirsl;
-static int sb_top, sb_bot;
 static int uc[2048],ut,ul,hoff;
 static char *box_msg;
 static int wq_flag;	/* -w: write changes on quit/ESC — flow quick-edit mode */
@@ -244,6 +242,9 @@ typedef	struct	LINE {
 #define	lgetc(lp, n)	((lp)->l_text[(n)]&0xFF)
 #define	lputc(lp, n, c)	((lp)->l_text[(n)]=(c))
 #define	llength(lp)	((lp)->l_used)
+static int lgen;		/* bumps when lines are added/removed — invalidates pos cache */
+static char pos_str[5] = "All ";	/* top-bar pagination readout: Top/Bot/All/NN%% */
+static LINE *fe_lp; static int fe_wr;	/* dot line + wrap rows at last update — WFEDIT fast path */
 
 extern	int	thisflag;
 extern	int	lastflag;
@@ -266,11 +267,12 @@ static void	ttflush(void);
 static void	eprintf(char*, ...);
 static void	ttputc(int);
 static void	asciiparm(int);
-static void	ttwindow(int, int);
 static void	update(void);
 static void	eputc(int);
 static void	eerase(void);
 static int	ctrlg(int, int, int);
+static int	forwpage(int, int, int);
+static int	backpage(int, int, int);
 static int	quit(int, int, int);
 static int	backdir(int, int, int);
 static int	filldir(char *);
@@ -336,8 +338,6 @@ static int	anycb(void);
 static void	kdelete(void);
 static int	kinsert(int);
 static int	kremove(int);
-static void	setscores(int, int);
-static void	traceback(int, int, int, int);
 static int	getxtra(SYMBOL *, SYMBOL *, int);
 static int	lnewline(void);
 static int	ldelnewline(void);
@@ -357,8 +357,6 @@ extern	char	*version[];
 extern	int	ttrow;
 extern	int	ttcol;
 extern	int	tceeol;
-extern	int	tcinsl;
-extern	int	tcdell;
 extern	char	cinfo[];
 extern	char	*keystrings[];
 extern	int	nmsg;
@@ -435,7 +433,7 @@ char	cinfo[256] = {
 #include	<termios.h>
 #include	<sys/ioctl.h>
 
-#define	NOBUF	512
+#define	NOBUF	65536
 
 static char	obuf[NOBUF];
 static int	nobuf;
@@ -477,13 +475,13 @@ ttopen(void)
 	if (ncol > NCOL)
 		ncol = NCOL;
 
-	write(1, "\033[?1006h\033[?1002h\033[?2004h", 24);
+	write(1, "\033[?1049h\033[?1006h\033[?1002h\033[?2004h", 32);	/* ?1049h: enter alt-screen so tmux's #{alternate_on} is true and PageUp is sent to us (else tmux's PPage binding eats it into copy-mode) */
 }
 
 static void
 ttclose(void)
 {
-	write(1,"\033[?1002l\033[?1006l\033[?2004l\033[2J\033[H",31); ttflush();
+	write(1,"\033[?1002l\033[?1006l\033[?2004l\033[2J\033[H\033[?1049l",39); ttflush();	/* leave alt-screen last (clear first for terminals lacking 1049) */
 	tcflush(0, TCIFLUSH); tcsetattr(1, TCSADRAIN, &oldtty);
 }
 
@@ -535,13 +533,9 @@ ttgetc(void)
 
 extern	int	ttrow;
 extern	int	ttcol;
-extern	int	tttop;
-extern	int	ttbot;
 extern	int	tthue;
 
 int	tceeol	=	3;
-int	tcinsl	= 	17;
-int	tcdell	=	16;
 
 static void
 ttinit(void)
@@ -600,70 +594,6 @@ asciiparm(int n)
 	if (q != 0)
 		asciiparm(q);
 	ttputc((n%10) + '0');
-}
-
-static void
-ttinsl(int row, int bot, int nchunk)
-{
-	if (row == bot) {
-		if (nchunk != 1)
-			abort();
-		ttmove(row, 0);
-		tteeol();
-	} else {
-		ttwindow(row, bot);
-		ttmove(row, 0);
-		while (nchunk--) {
-			ttputc(ESC);
-			ttputc('M');
-		}
-	}
-}
-
-static void
-ttdell(int row, int bot, int nchunk)
-{
-	if (row == bot) {
-		if (nchunk != 1)
-			abort();
-		ttmove(row, 0);
-		tteeol();
-	} else {
-		ttwindow(row, bot);
-		ttmove(bot, 0);
-		while (nchunk--)
-			ttputc(LF);
-	}
-}
-
-static void
-ttwindow(int top, int bot)
-{
-	if (tttop!=top || ttbot!=bot) {
-		ttputc(ESC);
-		ttputc('[');
-		asciiparm(top+1);
-		ttputc(';');
-		asciiparm(bot+1);
-		ttputc('r');
-		ttrow = HUGE;
-		ttcol = HUGE;
-		tttop = top;
-		ttbot = bot;
-	}
-}
-
-static void
-ttnowindow(void)
-{
-	ttputc(ESC);
-	ttputc('[');
-	ttputc(';');
-	ttputc('r');
-	ttrow = HUGE;
-	ttcol = HUGE;
-	tttop = HUGE;
-	ttbot = HUGE;
 }
 
 static void
@@ -749,13 +679,10 @@ loop:
 				else{if(sk>0)sk--; else{LINE*ln=lback(p);if(ln!=curbp->b_linep){p=ln;sk=wrap_rows(p)-1;}}}}
 				curwp->w_linep=p;curwp->w_skip=sk;curwp->w_dotp=p;curwp->w_doto=0;}curwp->w_flag|=WFHARD;update();goto loop;}
 				x--; y--; row=y-curwp->w_toprow;
-				if(!nosb&&x>=ncol-2&&y>0&&row>=0&&row<curwp->w_ntrows){int t=0;LINE*p;
-					for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p))t+=wrap_rows(p);
-					int g=row*t/curwp->w_ntrows,seen=0;LINE*tl=lforw(curbp->b_linep);int tsk=0;
-					for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){int wr=wrap_rows(p);if(seen+wr>g){tl=p;tsk=g-seen;break;}seen+=wr;}
-					curwp->w_linep=curwp->w_dotp=tl;curwp->w_skip=tsk;curwp->w_doto=0;curwp->w_flag|=WFHARD;update();goto loop;}
 				if(b&32)goto loop;
 				if(y==0&&ch=='M'){if(x>=ncol-3){quit(0,0,0);goto loop;}
+				else if(x>=ncol-39&&x<ncol-36){backpage(0,1,KRANDOM);update();goto loop;}
+				else if(x>=ncol-35&&x<ncol-32){forwpage(0,1,KRANDOM);update();goto loop;}
 				else if(x>=ncol-31&&x<ncol-24){speak_line(0,0,0);goto loop;}
 				else if(x>=ncol-23&&x<ncol-17){stop_speak(0,0,0);goto loop;}
 				else if(x>=ncol-15&&x<ncol-5){
@@ -1246,6 +1173,7 @@ lalloc(int used)
 	}
 	lp->l_size = size;
 	lp->l_used = used;
+	lgen++;
 	return (lp);
 }
 
@@ -1255,6 +1183,7 @@ lfree(LINE * lp)
 	register BUFFER	*bp;
 	register WINDOW	*wp;
 
+	lgen++;
 	wp = wheadp;
 	while (wp != NULL) {
 		if (wp->w_linep == lp)
@@ -1673,6 +1602,8 @@ kremove(int n)
 #define	DIRLIST	0
 
 static int	ctrlg(int, int, int);
+static int	forwpage(int, int, int);
+static int	backpage(int, int, int);
 static int	quit(int, int, int);
 static int	ctlxlp(int, int, int);
 static int	ctlxrp(int, int, int);
@@ -2455,8 +2386,8 @@ onlywind(int f, int n, int k)
 		--i;
 		lp = lback(lp);
 	}
-	curwp->w_toprow = 0;
-	curwp->w_ntrows = nrow-2;
+	curwp->w_toprow = 1;		/* keep row 0 for the top bar */
+	curwp->w_ntrows = nrow-3;
 	curwp->w_linep  = lp;
 	curwp->w_flag  |= WFMODE|WFHARD;
 	return (TRUE);
@@ -3833,6 +3764,11 @@ forwpage(int f, int n, int k)
 	lp = curwp->w_linep;
 	while (n-- && lp!=curbp->b_linep)
 		lp = lforw(lp);
+	if (lp == curbp->b_linep) {		/* overshot end: keep last screenful in view */
+		n = curwp->w_ntrows - 1;
+		while (n-- && lback(lp) != curbp->b_linep)
+			lp = lback(lp);
+	}
 	curwp->w_linep = lp;
 	curwp->w_dotp  = lp;
 	curwp->w_doto  = 0;
@@ -4379,18 +4315,27 @@ forwsrch(void)
 	register char	*pp;
 	register int	c;
 
+	int lo, up, n;
 	clp = curwp->w_dotp;
 	cbo = curwp->w_doto;
+	lo = pat[0]&0xFF; up = lo;
+	if (ISUPPER(lo)) lo = TOLOWER(lo);
+	else if (ISLOWER(lo)) up = TOUPPER(lo);
 	while (clp != curbp->b_linep) {
-		if (cbo == llength(clp)) {
-			clp = lforw(clp);
-			cbo = 0;
-			c = '\n';
-		} else
-			c = lgetc(clp, cbo++);
-		if (eq(c, pat[0]) != FALSE) {
-			tlp = clp;
-			tbo = cbo;
+		n = llength(clp);
+		if (pat[0] == '\n') {
+			if (cbo > n) { clp = lforw(clp); cbo = 0; continue; }
+			cbo = n+1;
+			tlp = lforw(clp); tbo = 0;
+		} else {
+			char *p = cbo<n ? memchr(clp->l_text+cbo, lo, n-cbo) : NULL;
+			char *q = lo!=up && cbo<n ? memchr(clp->l_text+cbo, up, n-cbo) : NULL;
+			if (p==NULL || (q&&q<p)) p = q;
+			if (p == NULL) { clp = lforw(clp); cbo = 0; continue; }
+			cbo = (int)(p-clp->l_text)+1;
+			tlp = clp; tbo = cbo;
+		}
+		{
 			pp  = &pat[1];
 			while (*pp != 0) {
 				if (tlp == curbp->b_linep)
@@ -4699,14 +4644,9 @@ wallchart(int f, int n, int k)
 	return (popblist());
 }
 
-#define	XCHAR	int
-#define	XSHORT	int
-
 typedef	struct	{
-	short	v_hash;
 	short	v_flag;
 	short	v_color;
-	XSHORT	v_cost;
 	char	v_text[NCOL];
 	char	v_attr[NCOL];
 }	VIDEO;
@@ -4847,17 +4787,9 @@ hl_line(VIDEO *vp, int cols)
 	}
 }
 
-static void	hash(VIDEO *);
 static void	uline(int, VIDEO *, VIDEO *);
 static void	ucopy(VIDEO *, VIDEO *);
 #define	VFCHG	0x0001
-#define	VFHBAD	0x0002
-
-typedef	struct	{
-	XCHAR	s_itrace;
-	XCHAR	s_jtrace;
-	XSHORT	s_cost;
-}	SCORE;
 
 int	sgarbf	= TRUE;
 int	vtrow	= 0;
@@ -4865,18 +4797,11 @@ int	vtcol	= 0;
 int	tthue	= CNONE;
 int	ttrow	= HUGE;
 int	ttcol	= HUGE;
-int	tttop	= HUGE;
-int	ttbot	= HUGE;
 
 static VIDEO	*vscreen[NROW-1];
 static VIDEO	*pscreen[NROW-1];
 static VIDEO	video[2*(NROW-1)];
 static VIDEO	blanks;
-
-#if	GOSLING
-
-static SCORE	score[NROW*NROW];
-#endif
 
 static void
 vtinit(void)
@@ -4902,7 +4827,6 @@ static void
 vttidy(void)
 {
 	ttcolor(CTEXT);
-	ttnowindow();
 	ttmove(nrow-1, 0);
 	tteeol();
 	tttidy();
@@ -4944,15 +4868,16 @@ vteeol(void)
 	vp = vscreen[vtrow];
 	while (vtcol < ncol)
 		vp->v_text[vtcol++] = ' ';
-	if(vtrow==0){const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;int active=speak_running();
-		/* pre-clear 31-col strip; [STOP] painted only while `a say` is alive */
-		for(bi=ncol-31;bi<ncol;bi++)vp->v_text[bi]=' ';
+	if(vtrow==0){const char*pu="[^]";const char*pd="[v]";const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;int active=speak_running();
+		/* pre-clear strip; [STOP] painted only while `a say` is alive */
+		for(bi=ncol-44;bi<ncol;bi++)vp->v_text[bi]=' ';
+		for(bi=0;bi<4;bi++){vp->v_text[ncol-44+bi]=pos_str[bi];vp->v_attr[ncol-44+bi]=HL_NUM;}
+		for(bi=0;pu[bi];bi++){vp->v_text[ncol-39+bi]=pu[bi];vp->v_attr[ncol-39+bi]=HL_KW;}
+		for(bi=0;pd[bi];bi++){vp->v_text[ncol-35+bi]=pd[bi];vp->v_attr[ncol-35+bi]=HL_KW;}
 		for(bi=0;sp[bi];bi++){vp->v_text[ncol-31+bi]=sp[bi];vp->v_attr[ncol-31+bi]=HL_NUM;}
 		if(active)for(bi=0;st[bi];bi++){vp->v_text[ncol-23+bi]=st[bi];vp->v_attr[ncol-23+bi]=HL_KW;}
 		for(bi=0;bt[bi];bi++){vp->v_text[ncol-15+bi]=bt[bi];vp->v_attr[ncol-15+bi]=HL_STR;}
 		for(bi=0;xx[bi];bi++){vp->v_text[ncol-3+bi]=xx[bi];vp->v_attr[ncol-3+bi]=HL_KW;}}
-	else if(!nosb&&vtrow>=curwp->w_toprow&&vtrow<curwp->w_toprow+curwp->w_ntrows){
-		if(vtrow>=sb_top&&vtrow<=sb_bot){vp->v_text[ncol-2]='|';vp->v_text[ncol-1]='|';}}
 }
 
 static int wrap_rows(LINE *lp) {
@@ -4979,7 +4904,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 		col = 0;
 	}
 	vscreen[row]->v_color = CTEXT;
-	vscreen[row]->v_flag |= (VFCHG|VFHBAD);
+	vscreen[row]->v_flag |= VFCHG;
 	vtmove(row, 0);
 	for (; j < llength(lp); j++) {
 		c = lgetc(lp, j);
@@ -4992,7 +4917,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 			row++;
 			if (row >= max_row) return row;
 			vscreen[row]->v_color = CTEXT;
-			vscreen[row]->v_flag |= (VFCHG|VFHBAD);
+			vscreen[row]->v_flag |= VFCHG;
 			vtmove(row, 0);
 			col = 0;
 		}
@@ -5015,11 +4940,8 @@ update(void)
 	register VIDEO	*vp2;
 	register int	i;
 	register int	c;
-	register int	hflag;
 	register int	currow;
 	register int	curcol;
-	register int	offs;
-	register int	size;
 
 	if (curmsgf!=FALSE || newmsgf!=FALSE) {
 		wp = wheadp;
@@ -5029,11 +4951,20 @@ update(void)
 		}
 	}
 	curmsgf = newmsgf;
-	hflag = FALSE;
 	if (curwp->w_markp && (curwp->w_flag & WFMOVE))
 		curwp->w_flag |= WFHARD;
-	{int t=0,a=0,h;LINE*p;for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){if(p==curwp->w_linep)a=t;t++;}
-	h=curwp->w_ntrows;if(t<h)t=h;sb_top=curwp->w_toprow+a*h/t;sb_bot=sb_top+h/6;if(sb_bot<sb_top+4)sb_bot=sb_top+4;if(sb_bot>sb_top+h-1)sb_bot=sb_top+h-1;}
+	{static LINE *cl; static BUFFER *cb; static int cg=-1, ca, ct;
+	 int a, t, h=curwp->w_ntrows;
+	 if (cb==curbp && cl==curwp->w_linep && cg==lgen) { a=ca; t=ct; }
+	 else { LINE *p; t=0; a=-1;
+		for (p=lforw(curbp->b_linep); p!=curbp->b_linep; p=lforw(p)) { if (p==curwp->w_linep) a=t; t++; }
+		if (a<0) a=t;
+		cb=curbp; cl=curwp->w_linep; cg=lgen; ca=a; ct=t; }
+	 if (t<=h) { pos_str[0]=' ';pos_str[1]='A';pos_str[2]='l';pos_str[3]='l'; }
+	 else if (a==0) { pos_str[0]=' ';pos_str[1]='T';pos_str[2]='o';pos_str[3]='p'; }
+	 else if (a+h>=t) { pos_str[0]=' ';pos_str[1]='B';pos_str[2]='o';pos_str[3]='t'; }
+	 else { int pc=a*100/(t>1?t-1:1); if(pc<1)pc=1; if(pc>99)pc=99;
+		pos_str[0]=' '; pos_str[1]= pc>=10?'0'+pc/10:' '; pos_str[2]='0'+pc%10; pos_str[3]='%'; }}
 	hoff=0;
 	wp = wheadp;
 	while (wp != NULL) {
@@ -5073,22 +5004,31 @@ update(void)
 			lp = wp->w_linep;
 			i  = wp->w_toprow;
 			if ((wp->w_flag&(WFEDIT|WFHARD)) != 0) {
-				hflag = TRUE;
 				int skip = wp->w_skip;
+				int fast = !(wp->w_flag&WFHARD) && wp==curwp && !wp->w_markp
+					&& wp->w_dotp==fe_lp && wrap_rows(fe_lp)==fe_wr;
 				while (i < wp->w_toprow+wp->w_ntrows) {
 					if (lp != wp->w_bufp->b_linep) {
 						if (fold_a && LSA(lp)) {
-							vscreen[i]->v_color=CTEXT; vscreen[i]->v_flag|=(VFCHG|VFHBAD); vtmove(i,0);
+							if (!fast) {
+							vscreen[i]->v_color=CTEXT; vscreen[i]->v_flag|=VFCHG; vtmove(i,0);
 							{const char*m="[+ click to expand a-loaded]";while(*m)vtputc(*m++);}
-							vteeol(); hl_line(vscreen[i],ncol); i++; FSKIP(lp,wp->w_bufp);
+							vteeol(); hl_line(vscreen[i],ncol); }
+							i++; FSKIP(lp,wp->w_bufp);
+						} else if (fast && lp != wp->w_dotp) {
+						i += wrap_rows(lp)-skip;
+						skip = 0;
+						lp = lforw(lp);
 						} else {
 						i = wrap_render(lp, i, wp->w_toprow+wp->w_ntrows, wp, skip);
 						skip = 0;
 						lp = lforw(lp);
 						}
+					} else if (fast) {
+						i++;
 					} else {
 						vscreen[i]->v_color = CTEXT;
-						vscreen[i]->v_flag |= (VFCHG|VFHBAD);
+						vscreen[i]->v_flag |= VFCHG;
 						vtmove(i, 0); vteeol();
 						hl_line(vscreen[i], ncol);
 						hl_sel(vscreen[i], lp, ncol, wp);
@@ -5104,6 +5044,7 @@ update(void)
 		}
 		wp = wp->w_wndp;
 	}
+	if (!box_msg) { vscreen[0]->v_color = CTEXT; vscreen[0]->v_flag |= VFCHG; vtmove(0,0); vteeol(); }	/* paint the dedicated top-bar row (text now starts at row 1) */
 	lp = curwp->w_linep;
 	currow = curwp->w_toprow - curwp->w_skip;
 	while (lp != curwp->w_dotp) {
@@ -5120,11 +5061,10 @@ update(void)
 	currow += rr;
 	curcol = rc;
 	if (curcol >= ncol) curcol = ncol-1;}
+	fe_lp = lp; fe_wr = wrap_rows(lp);
 	if (sgarbf != FALSE) {
 		sgarbf = FALSE;
 		epresf = FALSE;
-		tttop  = HUGE;
-		ttbot  = HUGE;
 		tthue  = CNONE;
 		ttmove(0, 0);
 		tteeop();
@@ -5136,50 +5076,6 @@ update(void)
 		ttflush();
 		return;
 	}
-#if	GOSLING
-	if (hflag != FALSE) {
-		for (i=0; i<nrow-1; ++i) {
-			hash(vscreen[i]);
-			hash(pscreen[i]);
-		}
-		offs = 0;
-		while (offs != nrow-1) {
-			vp1 = vscreen[offs];
-			vp2 = pscreen[offs];
-			if (vp1->v_color != vp2->v_color
-			||  vp1->v_hash  != vp2->v_hash)
-				break;
-			uline(offs, vp1, vp2);
-			ucopy(vp1, vp2);
-			++offs;
-		}
-		if (offs == nrow-1) {
-			ttmove(currow, curcol);
-			ttflush();
-			return;
-		}
-		size = nrow-1;
-		while (size != offs) {
-			vp1 = vscreen[size-1];
-			vp2 = pscreen[size-1];
-			if (vp1->v_color != vp2->v_color
-			||  vp1->v_hash  != vp2->v_hash)
-				break;
-			uline(size-1, vp1, vp2);
-			ucopy(vp1, vp2);
-			--size;
-		}
-		if ((size -= offs) == 0)
-			abort();
-		setscores(offs, size);
-		traceback(offs, size, size, size);
-		for (i=0; i<size; ++i)
-			ucopy(vscreen[offs+i], pscreen[offs+i]);
-		ttmove(currow, curcol);
-		ttflush();
-		return;
-	}
-#endif
 	for (i=0; i<nrow-1; ++i) {
 		vp1 = vscreen[i];
 		vp2 = pscreen[i];
@@ -5199,8 +5095,6 @@ ucopy(VIDEO * vvp, VIDEO * pvp)
 
 	vvp->v_flag &= ~VFCHG;
 	pvp->v_flag  = vvp->v_flag;
-	pvp->v_hash  = vvp->v_hash;
-	pvp->v_cost  = vvp->v_cost;
 	pvp->v_color = vvp->v_color;
 	for (i=0; i<ncol; ++i)
 		pvp->v_text[i] = vvp->v_text[i];
@@ -5283,7 +5177,7 @@ modeline(WINDOW * wp)
 	if (box_msg) return;
 	n = wp->w_toprow+wp->w_ntrows;
 	vscreen[n]->v_color = CMODE;
-	vscreen[n]->v_flag |= (VFCHG|VFHBAD);
+	vscreen[n]->v_flag |= VFCHG;
 	vtmove(n, 0);
 	bp = wp->w_bufp;
 	if ((bp->b_flag&BFCHG) != 0)
@@ -5337,170 +5231,6 @@ modeline(WINDOW * wp)
 	}
 }
 
-#if	GOSLING
-
-static void
-hash(VIDEO * vp)
-{
-	register int	i;
-	register int	n;
-	register char	*s;
-
-	if ((vp->v_flag&VFHBAD) != 0) {
-		s = &vp->v_text[ncol-1];
-		for (i=ncol; i!=0; --i, --s)
-			if (*s != ' ')
-				break;
-		n = ncol-i;
-		if (n > tceeol)
-			n = tceeol;
-		vp->v_cost = i+n;
-		for (n=0; i!=0; --i, --s)
-			n = (n<<5) + n + *s;
-		vp->v_hash = n;
-		vp->v_flag &= ~VFHBAD;
-	}
-}
-
-static void
-setscores(int offs, int size)
-{
-	register SCORE	*sp;
-	register int	tempcost;
-	register int	bestcost;
-	register int	j;
-	register int	i;
-	register VIDEO	**vp;
-	register VIDEO	**pp;
-	register SCORE	*sp1;
-	register VIDEO	**vbase;
-	register VIDEO	**pbase;
-
-	vbase = &vscreen[offs-1];
-	pbase = &pscreen[offs-1];
-	score[0].s_itrace = 0;
-	score[0].s_jtrace = 0;
-	score[0].s_cost   = 0;
-	sp = &score[1];
-	tempcost = 0;
-	vp = &vbase[1];
-	for (j=1; j<=size; ++j) {
-		sp->s_itrace = 0;
-		sp->s_jtrace = j-1;
-		tempcost += tcinsl;
-		tempcost += (*vp)->v_cost;
-		sp->s_cost = tempcost;
-		++vp;
-		++sp;
-	}
-	sp = &score[NROW];
-	tempcost = 0;
-	for (i=1; i<=size; ++i) {
-		sp->s_itrace = i-1;
-		sp->s_jtrace = 0;
-		tempcost  += tcdell;
-		sp->s_cost = tempcost;
-		sp += NROW;
-	}
-	sp1 = &score[NROW+1];
-	pp = &pbase[1];
-	for (i=1; i<=size; ++i) {
-		sp = sp1;
-		vp = &vbase[1];
-		for (j=1; j<=size; ++j) {
-			sp->s_itrace = i-1;
-			sp->s_jtrace = j;
-			bestcost = (sp-NROW)->s_cost;
-			if (j != size)
-				bestcost += tcdell;
-			tempcost = (sp-1)->s_cost;
-			tempcost += (*vp)->v_cost;
-			if (i != size)
-				tempcost += tcinsl;
-			if (tempcost < bestcost) {
-				sp->s_itrace = i;
-				sp->s_jtrace = j-1;
-				bestcost = tempcost;
-			}
-			tempcost = (sp-NROW-1)->s_cost;
-			if ((*pp)->v_color != (*vp)->v_color
-			||  (*pp)->v_hash  != (*vp)->v_hash)
-				tempcost += (*vp)->v_cost;
-			if (tempcost < bestcost) {
-				sp->s_itrace = i-1;
-				sp->s_jtrace = j-1;
-				bestcost = tempcost;
-			}
-			sp->s_cost = bestcost;
-			++sp;
-			++vp;
-		}
-		++pp;
-		sp1 += NROW;
-	}
-}
-
-static void
-traceback(int offs, int size, int i, int j)
-{
-	register int	itrace;
-	register int	jtrace;
-	register int	k;
-	register int	ninsl;
-	register int	ndraw;
-	register int	ndell;
-
-	if (i==0 && j==0)
-		return;
-	itrace = score[(NROW*i) + j].s_itrace;
-	jtrace = score[(NROW*i) + j].s_jtrace;
-	if (itrace == i) {
-		ninsl = 0;
-		if (i != size)
-			ninsl = 1;
-		ndraw = 1;
-		while (itrace!=0 || jtrace!=0) {
-			if (score[(NROW*itrace) + jtrace].s_itrace != itrace)
-				break;
-			jtrace = score[(NROW*itrace) + jtrace].s_jtrace;
-			if (i != size)
-				++ninsl;
-			++ndraw;
-		}
-		traceback(offs, size, itrace, jtrace);
-		if (ninsl != 0) {
-			ttcolor(CTEXT);
-			ttinsl(offs+j-ninsl, offs+size-1, ninsl);
-		}
-		do {
-			k = offs+j-ndraw;
-			uline(k, vscreen[k], &blanks);
-		} while (--ndraw);
-		return;
-	}
-	if (jtrace == j) {
-		ndell = 0;
-		if (j != size)
-			ndell = 1;
-		while (itrace!=0 || jtrace!=0) {
-			if (score[(NROW*itrace) + jtrace].s_jtrace != jtrace)
-				break;
-			itrace = score[(NROW*itrace) + jtrace].s_itrace;
-			if (j != size)
-				++ndell;
-		}
-		if (ndell != 0) {
-			ttcolor(CTEXT);
-			ttdell(offs+i-ndell, offs+size-1, ndell);
-		}
-		traceback(offs, size, itrace, jtrace);
-		return;
-	}
-	traceback(offs, size, itrace, jtrace);
-	k = offs+j-1;
-	uline(k, vscreen[k], pscreen[offs+i-1]);
-}
-#endif
 static	FILE	*ffp;
 
 static int
@@ -5607,7 +5337,6 @@ spawncli(int f, int n, int k)
 			shellp = "/bin/sh";
 	}
 	ttcolor(CTEXT);
-	ttnowindow();
 	if (strcmp(shellp, "/bin/csh") == 0) {
 		if (epresf != FALSE) {
 			ttmove(nrow-1, 0);
@@ -5688,7 +5417,6 @@ main(int argc, char * * argv)
 	while (argc >= 2) {
 		if (argc >= 3 && !strcmp(argv[1], "--box")) { box_msg = argv[2]; argv += 2; argc -= 2; }
 		else if (!strcmp(argv[1], "--tail")) { tail_flag = 1; argv++; argc--; }
-		else if (!strcmp(argv[1], "--nosb")) { nosb = 1; argv++; argc--; }
 		else if (!strcmp(argv[1], "--nofold")) { fold_a = 0; argv++; argc--; }
 		else if (!strcmp(argv[1], "-r")) { ro_flag = 1; argv++; argc--; }
 		else if (!strcmp(argv[1], "-w")) { wq_flag = 1; argv++; argc--; }
@@ -5811,8 +5539,8 @@ edinit(char * bname)
 	wp->w_doto  = 0;
 	wp->w_markp = NULL;
 	wp->w_marko = 0;
-	wp->w_toprow = box_msg ? 1 : 0;
-	wp->w_ntrows = box_msg ? nrow-3 : nrow-2;
+	wp->w_toprow = 1;		/* row 0 reserved for the always-on top bar */
+	wp->w_ntrows = nrow-3;
 	wp->w_force = 0;
 	wp->w_flag  = WFMODE|WFHARD;
 }
@@ -5834,7 +5562,7 @@ quit(int f, int n, int k)
 	if ((box_msg || wq_flag) && (curbp->b_flag & BFCHG) && filesave(0,0,0) != TRUE) return FALSE;
 	write_pos();
 	vttidy();
-	exit(GOOD);
+	_exit(GOOD);
 }
 
 static void
