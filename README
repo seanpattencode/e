@@ -2,7 +2,7 @@
 
 | e    | nano | e (5.6k file) | vi   | uemacs | ls   | micro | nvim |
 |------|------|---------------|------|--------|------|-------|------|
-| 0.58 | 0.82 | 1.2           | 1.6  | 1.6    | 1.8  | 2.7   | 18.5 |
+| 0.37 | 0.82 | 1.2           | 1.6  | 1.6    | 1.8  | 2.7   | 18.5 |
 
 e opens a 5,600-line file in 1.2ms. nvim takes 223ms (383x slower).
 e renders a full interactive directory browser 3x faster than ls prints filenames.

@@ -11,7 +11,8 @@ CC=$(compgen -c clang- 2>/dev/null|grep -xE 'clang-[0-9]+'|sort -t- -k2 -rn|head
 command -v hyperfine >/dev/null||{ echo "install hyperfine"; exit 1; }
 
 sed 's/lastflag = 0;/update(); _exit(0);/' "$DIR/e.c" > $TMP.c
-$CC -w -std=gnu89 -O3 -march=native -flto -o $TMP $TMP.c
+F="-w -std=gnu89 -O3 -march=native -flto"
+$CC $F -static -o $TMP $TMP.c 2>/dev/null||$CC $F -o $TMP $TMP.c
 
 args=(--warmup 3 --min-runs 10 -N -i)
 args+=(-n "e"              "$TMP")
