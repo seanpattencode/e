@@ -9,8 +9,8 @@ Pagination lives in the top bar and is always visible:
   [^] [v]   page up / page down (full screen, instant) — click, or PgUp/PgDn
    42%      position readout: Top / Bot / All / NN% through the buffer
 
-Also: mouse wheel (3 lines), type-ahead search. Page-down stops on the last
-screenful — it never scrolls into blank past EOF.
+Also: mouse wheel (full page per notch), type-ahead search. Page-down stops
+on the last screenful — it never scrolls into blank past EOF.
 
 The position readout is the one good thing the old scrollbar did, kept as
 text: O(1) per keystroke (cached; only recomputed when you scroll or add a
