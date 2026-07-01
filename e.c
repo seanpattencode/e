@@ -9,7 +9,7 @@ W="-std=gnu89 -Werror -Weverything -Wno-padded -Wno-disabled-macro-expansion -Wn
 H="-fstack-protector-strong -ftrivial-auto-var-init=zero -D_FORTIFY_SOURCE=2"
 [[ "$(uname -m)" == x86_64 ]]&&H+=" -fstack-clash-protection -fcf-protection"
 case "${1:-build}" in
-build)   $CC $W $H -fsyntax-only "$D/e.c"& B="-std=gnu89 -O3 -march=native -flto -w";{ [[ "$(uname)" == Linux ]]&&$CC $B -static -o "$D/e" "$D/e.c" 2>/dev/null;}||$CC $B -o "$D/e" "$D/e.c";;
+build)   $CC $W $H -fsyntax-only "$D/e.c"& B="-std=gnu89 -O3 -march=native -flto -w";{ command -v musl-gcc>/dev/null&&[[ "$(uname)" == Linux ]]&&musl-gcc -std=gnu11 -D_GNU_SOURCE -O3 -march=native -flto -w -static -o "$D/e" "$D/e.c" 2>/dev/null;}||{ [[ "$(uname)" == Linux ]]&&$CC $B -static -o "$D/e" "$D/e.c" 2>/dev/null;}||$CC $B -o "$D/e" "$D/e.c";;  # musl static CRT ~8us vs glibc ~110us → startup hits the raw-exec/asm floor (easm.s); falls back musl→clang-static→clang-dyn
 debug)   $CC $W $H -Wl,-z,relro,-z,now -O1 -g -fsanitize=address,undefined,integer -o "$D/e" "$D/e.c";;
 install) sh "$D/e.c"&&mkdir -p "$HOME/.local/bin"&&ln -sf "$D/e" "$HOME/.local/bin/e"&&echo "✓ ~/.local/bin/e";;
 clean)   rm -f "$D/e";;
