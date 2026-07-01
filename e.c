@@ -17,6 +17,7 @@ clean)   rm -f "$D/e";;
 esac
 exit 0
 #endif
+#include <time.h>
 #define	KBLOCK	4096
 #define	GOOD	0
 
@@ -244,6 +245,7 @@ typedef	struct	LINE {
 #define	llength(lp)	((lp)->l_used)
 static int lgen;		/* bumps when lines are added/removed — invalidates pos cache */
 static char pos_str[5] = "All ";	/* top-bar pagination readout: Top/Bot/All/NN%% */
+static struct timespec boott; static double bootms;	/* main() stamps boott; top bar shows e's own startup render ms (white), like the menus */
 static LINE *fe_lp; static int fe_wr;	/* dot line + wrap rows at last update — WFEDIT fast path */
 
 extern	int	thisflag;
@@ -4655,6 +4657,7 @@ typedef	struct	{
 #define HL_NUM  4
 #define HL_PRE  5
 #define HL_SEL  6
+#define HL_WHITE 7
 
 static const char *hl_colors[] = {
 	"\033[m",       /* HL_NORM */
@@ -4664,6 +4667,7 @@ static const char *hl_colors[] = {
 	"\033[35m",     /* HL_NUM magenta */
 	"\033[31m",     /* HL_PRE red/preprocessor */
 	"\033[7m",      /* HL_SEL reverse video */
+	"\033[37m",     /* HL_WHITE */
 };
 
 static const char *c_kw[] = {
@@ -4867,7 +4871,8 @@ vteeol(void)
 		vp->v_text[vtcol++] = ' ';
 	if(vtrow==0){const char*pu="[^]";const char*pd="[v]";const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;int active=speak_running();
 		/* pre-clear strip; [STOP] painted only while `a say` is alive */
-		for(bi=ncol-44;bi<ncol;bi++)vp->v_text[bi]=' ';
+		for(bi=ncol-53;bi<ncol;bi++)vp->v_text[bi]=' ';
+		{char tb[12];int tn=snprintf(tb,sizeof tb,"%.2fms",bootms);if(tn>8)tn=8;for(bi=0;bi<tn;bi++){vp->v_text[ncol-53+bi]=tb[bi];vp->v_attr[ncol-53+bi]=HL_WHITE;}}
 		for(bi=0;bi<4;bi++){vp->v_text[ncol-44+bi]=pos_str[bi];vp->v_attr[ncol-44+bi]=HL_NUM;}
 		for(bi=0;pu[bi];bi++){vp->v_text[ncol-39+bi]=pu[bi];vp->v_attr[ncol-39+bi]=HL_KW;}
 		for(bi=0;pd[bi];bi++){vp->v_text[ncol-35+bi]=pd[bi];vp->v_attr[ncol-35+bi]=HL_KW;}
@@ -4931,6 +4936,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 static void
 update(void)
 {
+	if(bootms<=0){struct timespec tn0;clock_gettime(CLOCK_MONOTONIC,&tn0);bootms=(double)(tn0.tv_sec-boott.tv_sec)*1e3+(double)(tn0.tv_nsec-boott.tv_nsec)/1e6;}
 	register LINE	*lp;
 	register WINDOW	*wp;
 	register VIDEO	*vp1;
@@ -5113,7 +5119,7 @@ uline(int row, VIDEO * vvp, VIDEO * pvp)
 		for (col = 0; col < ncol; col++) {
 			if (vvp->v_attr[col] != ca) {
 				ca = vvp->v_attr[col];
-				if (ca >= 0 && ca <= HL_SEL) {
+				if (ca >= 0 && ca <= HL_WHITE) {
 					const char *s = hl_colors[ca];
 					while (*s) ttputc(*s++);
 				}
@@ -5403,6 +5409,7 @@ SYMBOL	*binding[NKEYS];
 int
 main(int argc, char * * argv)
 {
+	clock_gettime(CLOCK_MONOTONIC, &boott);
 	register int	c;
 	register int	f;
 	register int	n;
