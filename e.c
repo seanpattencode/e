@@ -4956,14 +4956,19 @@ update(void)
 	curmsgf = newmsgf;
 	if (curwp->w_markp && (curwp->w_flag & WFMOVE))
 		curwp->w_flag |= WFHARD;
-	{static LINE *cl; static BUFFER *cb; static int cg=-1, ca, ct;
-	 int a, t, h=curwp->w_ntrows;
-	 if (cb==curbp && cl==curwp->w_linep && cg==lgen) { a=ca; t=ct; }
-	 else { LINE *p; t=0; a=-1;
-		for (p=lforw(curbp->b_linep); p!=curbp->b_linep; p=lforw(p)) { if (p==curwp->w_linep) a=t; t++; }
-		if (a<0) a=t;
-		cb=curbp; cl=curwp->w_linep; cg=lgen; ca=a; ct=t; }
-	 if (t<=h) { pos_str[0]=' ';pos_str[1]='A';pos_str[2]='l';pos_str[3]='l'; }
+	{static LINE *cl; static BUFFER *cb; static int cg=-1, ca, ct; static long cac, ctc;
+	 int a, t, h=curwp->w_ntrows; long ac, tc;
+	 if (cb==curbp && cl==curwp->w_linep && cg==lgen) { a=ca; t=ct; ac=cac; tc=ctc; }
+	 else { LINE *p; t=0; a=-1; ac=0; tc=0;
+		for (p=lforw(curbp->b_linep); p!=curbp->b_linep; p=lforw(p)) { if (p==curwp->w_linep) { a=t; ac=tc; } tc+=llength(p)+1; t++; }
+		if (a<0) { a=t; ac=tc; }
+		cb=curbp; cl=curwp->w_linep; cg=lgen; ca=a; ct=t; cac=ac; ctc=tc; }
+	 if (ro_flag) {	/* reader: char-% of whole book — the line-based readout below sits on Top/ 0% for the first ~10k lines of a book */
+		long P = (a+h>=t || tc<1) ? 1000 : ac*1000/tc;
+		if (P>=995) { pos_str[0]='1';pos_str[1]='0';pos_str[2]='0';pos_str[3]='%'; }
+		else if (P>=100) { int N=(int)(P/10); pos_str[0]=' ';pos_str[1]=(char)('0'+N/10);pos_str[2]=(char)('0'+N%10);pos_str[3]='%'; }
+		else { pos_str[0]=(char)('0'+P/10);pos_str[1]='.';pos_str[2]=(char)('0'+P%10);pos_str[3]='%'; } }
+	 else if (t<=h) { pos_str[0]=' ';pos_str[1]='A';pos_str[2]='l';pos_str[3]='l'; }
 	 else if (a==0) { pos_str[0]=' ';pos_str[1]='T';pos_str[2]='o';pos_str[3]='p'; }
 	 else if (a+h>=t) { pos_str[0]=' ';pos_str[1]='B';pos_str[2]='o';pos_str[3]='t'; }
 	 else { int pc=a*100/(t>1?t-1:1); if(pc<1)pc=1; if(pc>99)pc=99;
