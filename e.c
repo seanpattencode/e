@@ -66,6 +66,8 @@ exit 0
 #include	<sys/select.h>
 #include	<signal.h>
 static int dirmode,pmode;
+static char*pick_out; /* --pick <outfile>: dir browser as file picker — Enter on file writes abs path there and exits (portal/attach use) */
+static void pickdone(char*);
 static unsigned char rbuf[4096];static int rh,rt;
 static char dirsrch[64];
 static int dirsl;
@@ -701,7 +703,7 @@ loop:
 					curwp->w_dotp=lp;{int i,cc;for(i=cc=0;i<llength(lp)&&cc<x;cc=lgetc(lp,i++)==9?(cc|7)+1:cc+1){}curwp->w_doto=i;}
 					if(ch=='M'){if(b>=128&&!(b&32)){backdir(0, 1, KRANDOM);}else if(!(b&3)&&!(b&32)&&dirmode){char f[80];int i,nn=llength(lp);
 						for(i=0;i<nn;i++)f[i]=lgetc(lp,i);f[nn]=0;
-						if(n>1&&f[0]=='>')filldir(f+2);else{dirmode=0;readin(f+2);}}}
+						if(n>1&&f[0]=='>')filldir(f+2);else if(pick_out)pickdone(f+2);else{dirmode=0;readin(f+2);}}}
 					curwp->w_flag|=WFMOVE; update();
 				}
 				goto loop;
@@ -1663,7 +1665,7 @@ static int	backdel(int, int, int);
 static int	killline(int, int, int);
 static int	yank(int, int, int);
 
-static void	clip_osc52(void);
+static int	clip_osc52(void);
 static int	killregion(int, int, int);
 static int	copyregion(int, int, int);
 static int	lowerregion(int, int, int);
@@ -2727,6 +2729,7 @@ out:
 	return (TRUE);
 }
 
+static void pickdone(char*f){char rp[1024];FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}vttidy();exit(0);}
 typedef struct{char n[64];char d;}Dent;
 static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
 static int
@@ -3041,7 +3044,7 @@ newline(int f, int n, int k)
 {
 	register LINE	*lp;
 	register int	s;
-	if(dirmode){lp=curwp->w_dotp;char f_[80];int i_,n_=llength(lp);for(i_=0;i_<n_;i_++)f_[i_]=lgetc(lp,i_);f_[n_]=0;if(n_>1&&f_[0]=='>')filldir(f_+2);else{dirmode=0;readin(f_+2);}return TRUE;}
+	if(dirmode){lp=curwp->w_dotp;char f_[80];int i_,n_=llength(lp);for(i_=0;i_<n_;i_++)f_[i_]=lgetc(lp,i_);f_[n_]=0;if(n_>1&&f_[0]=='>')filldir(f_+2);else if(pick_out)pickdone(f_+2);else{dirmode=0;readin(f_+2);}return TRUE;}
 	if (n < 0)
 		return (FALSE);
 	while (n--) {
@@ -3426,18 +3429,16 @@ killregion(int f, int n, int k)
 	return (s);
 }
 
-static void
+static int
 clip_osc52(void)
 {
 	int n = kused;
 	FILE *fp;
-	if (n <= 0 || n > 1000000) return;
-#ifdef __APPLE__
-	fp = popen("pbcopy", "w");
-#else
-	fp = popen("xclip -selection clipboard 2>/dev/null || xsel --clipboard --input 2>/dev/null || wl-copy 2>/dev/null", "w");
-#endif
-	if (fp) { fwrite(kbufp, 1, (size_t)n, fp); pclose(fp); }
+	if (n <= 0 || n > 1000000) return FALSE;
+	fp = popen("wl-copy 2>/dev/null||xclip -sel c 2>/dev/null||xsel -bi 2>/dev/null||pbcopy 2>/dev/null", "w");
+	if (!fp) return FALSE;
+	fwrite(kbufp, 1, (size_t)n, fp);
+	return pclose(fp) == 0;
 }
 
 static int
@@ -3469,8 +3470,7 @@ copyregion(int f, int n, int k)
 			++loffs;
 		}
 	}
-	clip_osc52();
-	eprintf("[Copied %d bytes]", kused);
+	eprintf(clip_osc52()?"[Copied %d bytes]":"[Copy failed]", kused);
 	return (TRUE);
 }
 
@@ -5431,6 +5431,7 @@ main(int argc, char * * argv)
 		else if (!strcmp(argv[1], "-w")) { wq_flag = 1; argv++; argc--; }
 		else if (argv[1][0] == '+' && argv[1][1]) { start_off = atol(argv[1]+1); argv++; argc--; }
 		else if (argc >= 3 && !strcmp(argv[1], "--pos-out")) { pos_out_path = argv[2]; argv += 2; argc -= 2; }
+		else if (argc >= 3 && !strcmp(argv[1], "--pick")) { pick_out = argv[2]; argv += 2; argc -= 2; }
 		else break;
 	}
 	if (argc > 1)
@@ -5441,7 +5442,7 @@ main(int argc, char * * argv)
 	edinit(bname);
 	keymapinit();
 	if (box_msg) { if (binding[KCTRL|'@']) binding[KCTRL|'@']->s_nkey--; if (binding[KCTRL|'M']) binding[KCTRL|'M']->s_nkey--; binding[KCTRL|'@'] = binding[KCTRL|'M'] = binding[KCTRL|'D']; if (binding[KCTRL|'D']) binding[KCTRL|'D']->s_nkey += 2; }
-	if (argc > 1) { update(); readin(argv[1]); } else filldir(".");
+	if (argc > 1) { update(); if (pick_out) filldir(argv[1]); else readin(argv[1]); } else filldir(".");
 	if (tail_flag) { LINE*lp; for(lp=lforw(curbp->b_linep);lforw(lp)!=curbp->b_linep;lp=lforw(lp));
 	    curwp->w_dotp=lp; curwp->w_doto=llength(lp); curwp->w_flag|=WFHARD; }
 	if (start_off >= 0) {
