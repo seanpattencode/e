@@ -320,6 +320,7 @@ static int	is_undo(int *, int *);
 static void	is_prompt(int, int, int);
 static void	is_dspl(char *, int);
 static int	isearch(int);
+static int	forwisearch(int, int, int);
 static int	getkbd(void);
 static int	speak_line(int, int, int);
 static int	stop_speak(int, int, int);
@@ -696,7 +697,9 @@ loop:
 #endif
 					if(fp){if(fgets(fn,NFILEN,fp))fn[strcspn(fn,"\n")]=0;pclose(fp);}
 					if(fn[0]){readin(fn);sgarbf=TRUE;}else eprintf("[Cancelled]");
-					goto loop;}}
+					goto loop;}
+				else if(ncol>=60&&x>=ncol-60&&x<ncol-53)goto loop;}	/* [FIND] press swallowed: search starts on release, else the release's ESC seq lands inside isearch (ESC=Done) and its tail types into the buffer */
+				if(y==0&&ch=='m'&&ncol>=60&&x>=ncol-60&&x<ncol-53){forwisearch(0,0,0);update();goto loop;}
 				if(row>=0 && row<curwp->w_ntrows) {
 					for(lp=curwp->w_linep;row>0&&lp!=curbp->b_linep;row--){if(fold_a&&LSA(lp))FSKIP(lp,curbp);else lp=lforw(lp);}
 					if(ch=='M'&&LSA(lp)){fold_a=!fold_a;curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFHARD;sgarbf=TRUE;update();goto loop;}
@@ -4869,9 +4872,10 @@ vteeol(void)
 	vp = vscreen[vtrow];
 	while (vtcol < ncol)
 		vp->v_text[vtcol++] = ' ';
-	if(vtrow==0){const char*pu="[^]";const char*pd="[v]";const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";int bi;int active=speak_running();
+	if(vtrow==0){const char*pu="[^]";const char*pd="[v]";const char*sp="[SPEAK]";const char*st="[STOP]";const char*bt="[ADD FILE]";const char*xx="[X]";const char*fx="[FIND]";int bi;int active=speak_running();
 		/* pre-clear strip; [STOP] painted only while `a say` is alive */
 		for(bi=ncol-53;bi<ncol;bi++)vp->v_text[bi]=' ';
+		if(ncol>=60){for(bi=ncol-60;bi<ncol-53;bi++)vp->v_text[bi]=' ';for(bi=0;fx[bi];bi++){vp->v_text[ncol-60+bi]=fx[bi];vp->v_attr[ncol-60+bi]=HL_STR;}}
 		{char tb[12];int tn=snprintf(tb,sizeof tb,"%.2fms",bootms);if(tn>8)tn=8;for(bi=0;bi<tn;bi++){vp->v_text[ncol-53+bi]=tb[bi];vp->v_attr[ncol-53+bi]=HL_WHITE;}}
 		for(bi=0;bi<4;bi++){vp->v_text[ncol-44+bi]=pos_str[bi];vp->v_attr[ncol-44+bi]=HL_NUM;}
 		for(bi=0;pu[bi];bi++){vp->v_text[ncol-39+bi]=pu[bi];vp->v_attr[ncol-39+bi]=HL_KW;}
@@ -4915,7 +4919,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 			vteeol();
 			hl_line(vscreen[row], ncol);
 			hl_sel(vscreen[row], lp, ncol, wp);
-			if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
+			if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;if(ncol>=60)for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-60+bi]=HL_STR;}
 			row++;
 			if (row >= max_row) return row;
 			vscreen[row]->v_color = CTEXT;
@@ -4929,7 +4933,7 @@ static int wrap_render(LINE *lp, int row, int max_row, WINDOW *wp, int skip) {
 	vteeol();
 	hl_line(vscreen[row], ncol);
 	hl_sel(vscreen[row], lp, ncol, wp);
-	if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
+	if(row==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;if(ncol>=60)for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-60+bi]=HL_STR;}
 	return row + 1;
 }
 
@@ -5040,7 +5044,7 @@ update(void)
 						vtmove(i, 0); vteeol();
 						hl_line(vscreen[i], ncol);
 						hl_sel(vscreen[i], lp, ncol, wp);
-						if(i==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;}
+						if(i==0){int bi;for(bi=0;bi<7;bi++)vscreen[0]->v_attr[ncol-31+bi]=HL_NUM;for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-23+bi]=HL_KW;for(bi=0;bi<10;bi++)vscreen[0]->v_attr[ncol-15+bi]=HL_STR;for(bi=0;bi<3;bi++)vscreen[0]->v_attr[ncol-3+bi]=HL_KW;if(ncol>=60)for(bi=0;bi<6;bi++)vscreen[0]->v_attr[ncol-60+bi]=HL_STR;}
 						i++;
 					}
 				}
