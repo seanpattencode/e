@@ -2735,7 +2735,8 @@ out:
 
 static void pickdone(char*f){char rp[1024];FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}vttidy();exit(0);}
 typedef struct{char n[64];char d;}Dent;
-static Dent dents[512];static int dcnt;static short dview[512];static int dvn; /* full names; buffer rows = the FILTERED view (dview: row->dents) — open/search/click resolve through it */
+#define DENTMAX 4096	/* 512 silently hid files in big dirs (658-file ~/Downloads: 2 of 3 Bloomberg twins fell outside the readdir window) */
+static Dent dents[DENTMAX];static int dcnt;static short dview[DENTMAX];static int dvn; /* full names; buffer rows = the FILTERED view (dview: row->dents) — open/search/click resolve through it */
 static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
 static int dentidx(LINE*lp){LINE*l=lforw(curbp->b_linep);int i=0;while(l!=lp&&l!=curbp->b_linep&&i<dvn-1){l=lforw(l);i++;}return i;}
 static char*dname(LINE*lp){return dvn?dents[dview[dentidx(lp)]].n:"";}
@@ -2769,7 +2770,7 @@ filldir(char *p)
 {DIR*d;struct dirent*e;int c=0;char*b;
 if(!(d=opendir(p)))return 0;chdir(p);getcwd(curbp->b_fname,NFILEN);
 b=strrchr(curbp->b_fname,'/');strlcpy(curbp->b_bname,b&&b[1]?b+1:curbp->b_fname,NBUFN);
-while((e=readdir(d))&&c<512){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n,e->d_name,64);}
+while((e=readdir(d))&&c<DENTMAX){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n,e->d_name,64);}
 closedir(d);qsort(dents,c,sizeof(Dent),dentcmp);dcnt=c;dirmode=1;dirsl=0;dirsrch[0]=0;dshow();return 1;}
 static int
 backdir(int f, int n, int k)
