@@ -307,6 +307,7 @@ static void	vtmove(int, int);
 static void	vtputc(int);
 static void	vteeol(void);
 static int	wrap_rows(LINE *);
+static void	dopen(LINE *);
 static int	eread(char *, char *, int, int, va_list);
 static void	eformat(char *, va_list);
 static void	eputi(int, int);
@@ -704,9 +705,7 @@ loop:
 					for(lp=curwp->w_linep;row>0&&lp!=curbp->b_linep;row--){if(fold_a&&LSA(lp))FSKIP(lp,curbp);else lp=lforw(lp);}
 					if(ch=='M'&&LSA(lp)){fold_a=!fold_a;curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFHARD;sgarbf=TRUE;update();goto loop;}
 					curwp->w_dotp=lp;{int i,cc;for(i=cc=0;i<llength(lp)&&cc<x;cc=lgetc(lp,i++)==9?(cc|7)+1:cc+1){}curwp->w_doto=i;}
-					if(ch=='M'){if(b>=128&&!(b&32)){backdir(0, 1, KRANDOM);}else if(!(b&3)&&!(b&32)&&dirmode){char f[80];int i,nn=llength(lp);
-						for(i=0;i<nn;i++)f[i]=lgetc(lp,i);f[nn]=0;
-						if(n>1&&f[0]=='>')filldir(f+2);else if(pick_out)pickdone(f+2);else{dirmode=0;readin(f+2);}}}
+					if(ch=='M'){if(b>=128&&!(b&32)){backdir(0, 1, KRANDOM);}else if(!(b&3)&&!(b&32)&&dirmode)dopen(lp);}
 					curwp->w_flag|=WFMOVE; update();
 				}
 				goto loop;
@@ -2734,17 +2733,25 @@ out:
 
 static void pickdone(char*f){char rp[1024];FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}vttidy();exit(0);}
 typedef struct{char n[64];char d;}Dent;
+static Dent dents[512];static int dcnt; /* full names; buffer lines are DISPLAY only (middle-elided to window width) — open/search go through dents so long names stay reachable */
 static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
+static int dentidx(LINE*lp){LINE*l=lforw(curbp->b_linep);int i=0;while(l!=lp&&l!=curbp->b_linep&&i<dcnt-1){l=lforw(l);i++;}return i;}
+static void dopen(LINE*lp){int i;if(!dirmode||!dcnt||lp==curbp->b_linep)return;i=dentidx(lp);
+if(dents[i].d)filldir(dents[i].n);else if(pick_out)pickdone(dents[i].n);else{dirmode=0;readin(dents[i].n);}}
 static int
 filldir(char *p)
-{DIR*d;struct dirent*e;LINE*l;int n,c=0,i;char s[80];Dent ents[512];
+{DIR*d;struct dirent*e;LINE*l;int n,c=0,i,w;char s[80],*b;
 if(!(d=opendir(p)))return 0;bclear(curbp);chdir(p);getcwd(curbp->b_fname,NFILEN);
-while((e=readdir(d))&&c<512){if(e->d_name[0]=='.'&&!e->d_name[1])continue;ents[c].d=e->d_type==DT_DIR;strlcpy(ents[c++].n,e->d_name,64);}
-closedir(d);qsort(ents,c,sizeof(Dent),dentcmp);for(i=0;i<c;i++){
-n=sprintf(s,"%s%s",ents[i].d?"> ":"  ",ents[i].n);if((l=lalloc(n))){
+b=strrchr(curbp->b_fname,'/');strlcpy(curbp->b_bname,b&&b[1]?b+1:curbp->b_fname,NBUFN);
+while((e=readdir(d))&&c<512){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n,e->d_name,64);}
+closedir(d);qsort(dents,c,sizeof(Dent),dentcmp);dcnt=c;w=ncol-4;for(i=0;i<c;i++){ /* rows wrap past ncol-2 (wrap_rows); 2-char prefix -> display width ncol-4 */
+n=(int)strlen(dents[i].n);
+if(w>=20&&n>w)n=sprintf(s,"%s%.*s~%s",dents[i].d?"> ":"  ",w-13,dents[i].n,dents[i].n+n-12); /* wider than the window: head + '~' + 12-char tail keeps the extension visible, row never wraps */
+else n=sprintf(s,"%s%s",dents[i].d?"> ":"  ",dents[i].n);
+if((l=lalloc(n))){
 l->l_bp=lback(curbp->b_linep);l->l_bp->l_fp=l;l->l_fp=curbp->b_linep;
 curbp->b_linep->l_bp=l;while(n--)lputc(l,n,s[n]);}}dirmode=1;dirsl=0;dirsrch[0]=0;
-curwp->w_linep=curwp->w_dotp=lforw(curbp->b_linep);curwp->w_doto=0;curwp->w_flag|=WFHARD;return 1;}
+curwp->w_linep=curwp->w_dotp=lforw(curbp->b_linep);curwp->w_doto=0;curwp->w_flag|=WFHARD|WFMODE;return 1;}
 static int
 backdir(int f, int n, int k)
 {if(dirmode){filldir("..");}else{char d[80],*p;strcpy(d,curbp->b_fname);p=strrchr(d,'/');if(p)*p=0;else*d=0;filldir(*d?d:".");}return TRUE;}
@@ -3004,14 +3011,22 @@ selfinsert(int f, int n, int k)
 
 	if (dirmode) {
 		c = k & KCHAR;
-		if (dirsl < 63) { LINE *lp; dirsrch[dirsl++] = c; dirsrch[dirsl] = 0;
-			for (lp=lforw(curbp->b_linep); lp!=curbp->b_linep; lp=lforw(lp)) {
-				char fn[80]; int i, nn=llength(lp); if(nn<3) continue;
-				for(i=0;i<nn-2&&i<79;i++) fn[i]=lgetc(lp,i+2); fn[i]=0;
-				if(strcasestr(fn,dirsrch)){curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFMOVE;break;}
+		if ((c=='\t'||((k&KCTRL)&&c=='I')) && dcnt) { int st,i,o;	/* Tab (arrives as KCTRL|'I') = NEXT match; no query: next entry — first-match-only can't reach twins like *.docx/.html/.pdf */
+			st = dentidx(curwp->w_dotp);
+			for (o=1; o<=dcnt; o++) { i=(st+o)%dcnt;
+				if (dirsl && !strcasestr(dents[i].n,dirsrch)) continue;
+				{ LINE *l=lforw(curbp->b_linep); int x=i; while(x--) l=lforw(l); curwp->w_dotp=l; }
+				curwp->w_doto=0; curwp->w_flag|=WFMOVE; break;
 			}
+			eprintf("find: %s -> %s", dirsl?dirsrch:"(all)", dents[dentidx(curwp->w_dotp)].n); return TRUE;
 		}
-		eprintf("find: %s", dirsrch); return TRUE;
+		if (dirsl < 63) { LINE *lp=lforw(curbp->b_linep); int i; dirsrch[dirsl++] = c; dirsrch[dirsl] = 0;
+			for (i=0; i<dcnt && lp!=curbp->b_linep; i++, lp=lforw(lp))
+				if(strcasestr(dents[i].n,dirsrch)){curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFMOVE;break;}
+		}
+		{ int i=dentidx(curwp->w_dotp);	/* echo the SELECTED full name — elided rows stay identifiable */
+		  eprintf("find: %s -> %s (Tab=next)", dirsrch, dcnt?dents[i].n:""); }
+		return TRUE;
 	}
 	if (n < 0)
 		return (FALSE);
@@ -3047,7 +3062,7 @@ newline(int f, int n, int k)
 {
 	register LINE	*lp;
 	register int	s;
-	if(dirmode){lp=curwp->w_dotp;char f_[80];int i_,n_=llength(lp);for(i_=0;i_<n_;i_++)f_[i_]=lgetc(lp,i_);f_[n_]=0;if(n_>1&&f_[0]=='>')filldir(f_+2);else if(pick_out)pickdone(f_+2);else{dirmode=0;readin(f_+2);}return TRUE;}
+	if(dirmode){dopen(curwp->w_dotp);return TRUE;}
 	if (n < 0)
 		return (FALSE);
 	while (n--) {
@@ -5456,7 +5471,7 @@ main(int argc, char * * argv)
 	}
 	lastflag = 0;
 loop:
-	if(resized){resized=0;refresh(0,0,0);}
+	if(resized){resized=0;refresh(0,0,0);if(dirmode){int _i=dentidx(curwp->w_dotp),_l=dirsl;char _s[64];strlcpy(_s,dirsrch,64);filldir(".");strlcpy(dirsrch,_s,64);dirsl=_l;while(_i--)curwp->w_dotp=lforw(curwp->w_dotp);curwp->w_flag|=WFMOVE;}}	/* re-elide dir rows to the new width; keep selection + search (a WINCH lands between keystrokes) */
 	{int nb=0;if(rh>=rt)ioctl(0,FIONREAD,&nb);if(rh>=rt&&!nb&&!pmode){update();
 	if (box_msg) {
 		int sr=ttrow, sc=ttcol, i, ml=(int)strlen(box_msg), cc=0;
