@@ -2733,9 +2733,8 @@ out:
 	return (TRUE);
 }
 
-static char*pickmem(char*b){char*h=getenv("HOME");snprintf(b,1024,"%s/.e_pick",h?h:".");return b;} /* picker memory: reopen where you last picked (a web form passes a stale current_folder) */
-static void pickdone(char*f){char rp[1024],mf[1024],*s;FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}
-if((s=strrchr(rp,'/'))&&(o=fopen(pickmem(mf),"w"))){fwrite(rp,1,(size_t)(s-rp),o);fclose(o);}vttidy();exit(0);}
+static char*pickmem(char*b){char*h=getenv("HOME");snprintf(b,1024,"%s/.e_pick",h?h:".");return b;} /* picker memory: reopen where last browsed (web forms pass stale current_folder) */
+static void pickdone(char*f){char rp[1024];FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}vttidy();exit(0);}
 typedef struct{char n[64];char d;}Dent;
 #define DENTMAX 4096	/* 512 silently hid files in big dirs (658-file ~/Downloads: 2 of 3 Bloomberg twins fell outside the readdir window) */
 static Dent dents[DENTMAX];static int dcnt;static short dview[DENTMAX];static int dvn; /* full names; buffer rows = the FILTERED view (dview: row->dents) — open/search/click resolve through it */
@@ -2771,6 +2770,7 @@ static int
 filldir(char *p)
 {DIR*d;struct dirent*e;int c=0;char*b;
 if(!(d=opendir(p)))return 0;chdir(p);getcwd(curbp->b_fname,NFILEN);
+if(pick_out){FILE*g;char m[1024],w[1024];if(getcwd(w,1024)&&(g=fopen(pickmem(m),"w"))){fputs(w,g);fclose(g);}}
 b=strrchr(curbp->b_fname,'/');strlcpy(curbp->b_bname,b&&b[1]?b+1:curbp->b_fname,NBUFN);
 while((e=readdir(d))&&c<DENTMAX){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n,e->d_name,64);}
 closedir(d);qsort(dents,c,sizeof(Dent),dentcmp);dcnt=c;dirmode=1;dirsl=0;dirsrch[0]=0;dshow();return 1;}
