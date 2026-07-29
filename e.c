@@ -2733,7 +2733,9 @@ out:
 	return (TRUE);
 }
 
-static void pickdone(char*f){char rp[1024];FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}vttidy();exit(0);}
+static char*pickmem(char*b){char*h=getenv("HOME");snprintf(b,1024,"%s/.e_pick",h?h:".");return b;} /* picker memory: reopen where you last picked (a web form passes a stale current_folder) */
+static void pickdone(char*f){char rp[1024],mf[1024],*s;FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}
+if((s=strrchr(rp,'/'))&&(o=fopen(pickmem(mf),"w"))){fwrite(rp,1,(size_t)(s-rp),o);fclose(o);}vttidy();exit(0);}
 typedef struct{char n[64];char d;}Dent;
 #define DENTMAX 4096	/* 512 silently hid files in big dirs (658-file ~/Downloads: 2 of 3 Bloomberg twins fell outside the readdir window) */
 static Dent dents[DENTMAX];static int dcnt;static short dview[DENTMAX];static int dvn; /* full names; buffer rows = the FILTERED view (dview: row->dents) — open/search/click resolve through it */
@@ -5477,7 +5479,10 @@ main(int argc, char * * argv)
 	edinit(bname);
 	keymapinit();
 	if (box_msg) { if (binding[KCTRL|'@']) binding[KCTRL|'@']->s_nkey--; if (binding[KCTRL|'M']) binding[KCTRL|'M']->s_nkey--; binding[KCTRL|'@'] = binding[KCTRL|'M'] = binding[KCTRL|'D']; if (binding[KCTRL|'D']) binding[KCTRL|'D']->s_nkey += 2; }
-	if (argc > 1) { update(); if (pick_out) filldir(argv[1]); else readin(argv[1]); } else filldir(".");
+	if (pick_out) { char mf[1024],md[1024]={0};FILE*g;
+		if ((g=fopen(pickmem(mf),"r"))) { if(fgets(md,1024,g))md[strcspn(md,"\n")]=0; fclose(g); }
+		update(); if (!(md[0] && filldir(md))) filldir(argc>1?argv[1]:"."); }
+	else if (argc > 1) { update(); readin(argv[1]); } else filldir(".");
 	if (tail_flag) { LINE*lp; for(lp=lforw(curbp->b_linep);lforw(lp)!=curbp->b_linep;lp=lforw(lp));
 	    curwp->w_dotp=lp; curwp->w_doto=llength(lp); curwp->w_flag|=WFHARD; }
 	if (start_off >= 0) {
