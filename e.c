@@ -63,7 +63,9 @@ exit 0
 #include	<sys/stat.h>
 #include	<unistd.h>
 #include	<sys/wait.h>
+#ifdef __linux__
 #include	<sys/inotify.h>
+#endif
 #include	<sys/select.h>
 #include	<signal.h>
 static int dirmode,pmode;
@@ -510,13 +512,18 @@ ttflush(void)
 	}
 }
 
-static int ifd=-1,iwd=-1;
+static int ifd=-1;
+#ifdef __linux__
+static int iwd=-1;
 static void fwatch(const char*f){char d[NFILEN];const char*s=strrchr(f,'/');
     if(s){size_t n=(size_t)(s-f);memcpy(d,f,n);d[n]=0;}else strcpy(d,".");
     if(ifd<0)ifd=inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
     if(iwd>=0)inotify_rm_watch(ifd,iwd);
     iwd=ifd<0?-1:inotify_add_watch(ifd,d,IN_CLOSE_WRITE|IN_MOVED_TO|IN_MODIFY);
 }
+#else
+static void fwatch(const char*f){}
+#endif
 static int
 ttgetc(void)
 {
@@ -524,6 +531,7 @@ ttgetc(void)
 	for(;;){fd_set r;FD_ZERO(&r);FD_SET(0,&r);int mx=0;
 	    if(ifd>=0){FD_SET(ifd,&r);mx=ifd;}
 	    if(select(mx+1,&r,0,0,0)<0)continue;
+#ifdef __linux__
 	    if(ifd>=0&&FD_ISSET(ifd,&r)){char ib[4096];ssize_t n=read(ifd,ib,sizeof ib);char*p=ib;int hit=0;
 	        const char*b=strrchr(curbp->b_fname,'/');b=b?b+1:curbp->b_fname;
 	        while(n>0&&p<ib+n){struct inotify_event*e=(void*)p;
@@ -532,6 +540,7 @@ ttgetc(void)
 	            for(lp=lforw(curbp->b_linep);lforw(lp)!=curbp->b_linep;lp=lforw(lp));
 	            curwp->w_dotp=lp;curwp->w_doto=llength(lp);
 	            curwp->w_flag|=WFHARD;update();ttflush();}}
+#endif
 	    if(FD_ISSET(0,&r)){int n=read(0,rbuf,sizeof rbuf);if(n>0){rh=1;rt=n;return rbuf[0];}}}
 }
 
