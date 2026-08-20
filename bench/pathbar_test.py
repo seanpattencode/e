@@ -170,6 +170,16 @@ assert disp[1].startswith("/") and "pathbar_t/dir" in "".join(disp[1:4]), f"afte
 ok("resize (SIGWINCH) reflows now: header back at top, no keypress")
 e.send(b"\x1b"); e.exited()
 
+# --- >63-char filename: Dent.n[64] truncated it, realpath failed, Enter/click did nothing (WhatsApp/Downloads docs) ---
+LONG = "WhatsApp Document 2026-08-20 at 17.44.47 Patten_Sean_quarterly_report_final_v3_signed_copy.pdf"   # 94 chars
+open(DIRA + "/" + LONG, "w").write("doc\n")
+for f in (OUT, HOME + "/.e_pick"):
+    if os.path.exists(f): os.remove(f)
+e = Ed(["--pick", OUT, DIRA], cwd=T); e.wait_for("^L edit path")
+e.send("Whats"); e.wait_for("(1/4)"); e.send(b"\r")
+assert e.exited() == 0 and open(OUT).read() == os.path.realpath(DIRA + "/" + LONG), open(OUT).read()
+ok("94-char filename: filter + Enter picks the full path (was a silent no-op at 63)")
+
 # --- ESC quits picker without picking ---
 e = Ed(["--pick", OUT + ".none", DIRA], cwd=T)
 e.wait_for("^L edit path"); e.send(b"\x1b")

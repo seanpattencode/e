@@ -2400,44 +2400,42 @@ return TRUE;
 }
 static char*pickmem(char*b){char*h=getenv("HOME");snprintf(b,1024,"%s/.e_pick",h?h:".");return b;} /* picker memory: reopen where last browsed (web forms pass stale current_folder) */
 static void pickdone(char*f){char rp[1024];FILE*o;if(!realpath(f,rp))return;if((o=fopen(pick_out,"w"))){fputs(rp,o);fclose(o);}vttidy();exit(0);}
-typedef struct{char n[64];char d;}Dent;
+typedef struct{char*n;char d;}Dent; /* n -> dpool, full NAME_MAX: n[64] truncated, so Enter on a long name did nothing */
 #define DENTMAX 4096	/* 512 silently hid files in big dirs (658-file ~/Downloads: 2 of 3 Bloomberg twins fell outside the readdir window) */
-static Dent dents[DENTMAX];static int dcnt;static short dview[DENTMAX];static int dvn; /* full names; buffer rows = the FILTERED view (dview: row->dents) — open/search/click resolve through it */
+static Dent dents[DENTMAX];static char dpool[DENTMAX*256];static int dcnt;static short dview[DENTMAX];static int dvn; /* full names; buffer rows = the FILTERED view (dview: row->dents) — open/search/click resolve through it */
 static int dhdr; /* 1 = dir view has a wrapping current-path header line at the top (row->entry mapping is offset by it) */
 static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
 static int dishdr(LINE*lp){return dhdr&&lp==lforw(curbp->b_linep);} /* the top header line = current path, not a file entry */
-static int dentidx(LINE*lp){LINE*l=lforw(curbp->b_linep);int i=0;if(dhdr&&l!=curbp->b_linep)l=lforw(l);while(l!=lp&&l!=curbp->b_linep&&i<dvn-1){l=lforw(l);i++;}return i;}
+static int dentidx(LINE*lp){LINE*l=lforw(curbp->b_linep);int i=0;if(dhdr&&l!=curbp->b_linep)l=lforw(l);for(;l!=lp&&l!=curbp->b_linep&&i<dvn-1;i++)l=lforw(l);return i;}
 static char*dname(LINE*lp){return (dvn&&!dishdr(lp))?dents[dview[dentidx(lp)]].n:"";}
 static int dpath(void){return dirsl&&(*dirsrch=='/'||*dirsrch=='~'||strchr(dirsrch,'/')!=0);} /* typed text is a PATH once it has a '/' (or starts ~): filenames can't contain '/', so this is unambiguous — type any path, Enter goes there */
+static LINE*dadd(char*s,int n){LINE*l=lalloc(n);if(l){l->l_bp=lback(curbp->b_linep);l->l_bp->l_fp=l;l->l_fp=curbp->b_linep;curbp->b_linep->l_bp=l;memcpy(l->l_text,s,n);}return l;}
 static void dshow(void) /* rebuild rows = entries matching dirsrch (picker-style narrowing), middle-elided to width; rows wrap past ncol-2 (wrap_rows), 2-char prefix -> width ncol-4 */
-{LINE*l;int n,i,w=ncol-4;char s[80];
+{LINE*l;int n,i,w=ncol-4;char s[260];
 bclear(curbp);dvn=0;dhdr=0;
 if(dpath()){ /* path/go mode: full path as ONE buffer line, so it WRAPS (small windows) instead of truncating; cursor at end = edit point */
-if((l=lalloc(dirsl))){l->l_bp=lback(curbp->b_linep);l->l_bp->l_fp=l;l->l_fp=curbp->b_linep;curbp->b_linep->l_bp=l;
-for(i=0;i<dirsl;i++)lputc(l,i,dirsrch[i]);
-curwp->w_linep=curwp->w_dotp=l;curwp->w_doto=dirsl;
+if((l=dadd(dirsrch,dirsl))){curwp->w_linep=curwp->w_dotp=l;curwp->w_doto=dirsl;
 {int wr=wrap_rows(l),nt=curwp->w_ntrows;curwp->w_skip=wr>nt?wr-nt:0;} /* keep the end (edit point) on-screen when the path is taller than the window */
 curwp->w_flag|=WFHARD|WFMODE;}return;}
-{char cw[1024];if(getcwd(cw,sizeof cw)){int L=(int)strlen(cw);if((l=lalloc(L))){l->l_bp=lback(curbp->b_linep);l->l_bp->l_fp=l;l->l_fp=curbp->b_linep;curbp->b_linep->l_bp=l;while(L--)lputc(l,L,cw[L]);}dhdr=1;}} /* full current path as a WRAPPING header row: a thin window shows all of it (never truncated) */
+{char cw[1024];if(getcwd(cw,sizeof cw)){dadd(cw,(int)strlen(cw));dhdr=1;}} /* full current path as a WRAPPING header row: a thin window shows all of it (never truncated) */
 for(i=0;i<dcnt;i++){
 if(dirsl&&!strcasestr(dents[i].n,dirsrch))continue;
 dview[dvn++]=(short)i;
 n=(int)strlen(dents[i].n);
 if(w>=20&&n>w)n=sprintf(s,"%s%.*s~%s",dents[i].d?"> ":"  ",w-13,dents[i].n,dents[i].n+n-12); /* head + '~' + 12-char tail keeps the extension visible */
 else n=sprintf(s,"%s%s",dents[i].d?"> ":"  ",dents[i].n);
-if((l=lalloc(n))){
-l->l_bp=lback(curbp->b_linep);l->l_bp->l_fp=l;l->l_fp=curbp->b_linep;
-curbp->b_linep->l_bp=l;while(n--)lputc(l,n,s[n]);}}
+dadd(s,n);}
 {LINE*h=lforw(curbp->b_linep),*d=(dhdr&&lforw(h)!=curbp->b_linep)?lforw(h):h; /* view top = header; selection starts on the first real entry */
 curwp->w_linep=h;curwp->w_dotp=d;curwp->w_doto=0;curwp->w_flag|=WFHARD|WFMODE;}}
+static void dfile(char*x){if(pick_out)pickdone(x);else{dirmode=0;readin(x);}}
 static void dopen(LINE*lp){int i;if(!dirmode||!dvn||lp==curbp->b_linep||dishdr(lp))return;i=dview[dentidx(lp)];
-if(dents[i].d)filldir(dents[i].n);else if(pick_out)pickdone(dents[i].n);else{dirmode=0;readin(dents[i].n);}}
+if(dents[i].d)filldir(dents[i].n);else dfile(dents[i].n);}
 static int dgo(char*q) /* editable path bar: go to a typed/pasted path — file OR folder, '~' expands */
 {struct stat st;char x[1024],*h;
 if(q[0]=='~'&&(h=getenv("HOME")))snprintf(x,sizeof x,"%s%s",h,q+1);else strlcpy(x,q,sizeof x);
 if(stat(x,&st)){eprintf("go: %s — not found",x);return FALSE;}
 if(S_ISDIR(st.st_mode))return filldir(x);
-if(pick_out)pickdone(x);else{dirmode=0;readin(x);}return TRUE;}
+dfile(x);return TRUE;}
 static void dfilter(void) /* [FIND] button while browsing: prompt a filter — the mouse-only route to narrowing */
 {char q[64];if(ereply("filter: ",q,64)!=TRUE)q[0]=0;
 strlcpy(dirsrch,q,64);dirsl=(int)strlen(dirsrch);dshow();
@@ -2452,11 +2450,11 @@ dbar();}
 return TRUE;}
 static int
 filldir(char *p)
-{DIR*d;struct dirent*e;int c=0;char*b;
+{DIR*d;struct dirent*e;int c=0,o=0;char*b;
 if(!(d=opendir(p)))return 0;chdir(p);getcwd(curbp->b_fname,NFILEN);
 if(pick_out){FILE*g;char m[1024],w[1024];if(getcwd(w,1024)&&(g=fopen(pickmem(m),"w"))){fputs(w,g);fclose(g);}}
 b=strrchr(curbp->b_fname,'/');strlcpy(curbp->b_bname,b&&b[1]?b+1:curbp->b_fname,NBUFN);
-while((e=readdir(d))&&c<DENTMAX){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n,e->d_name,64);}
+while((e=readdir(d))&&c<DENTMAX){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n=dpool+o,e->d_name,256);o+=(int)strlen(dpool+o)+1;}
 closedir(d);qsort(dents,c,sizeof(Dent),dentcmp);dcnt=c;dirmode=1;dirsl=0;dirsrch[0]=0;dshow();
 eprintf("%d items · type to filter · ^L edit path",c);return 1;} /* full path is the wrapping header row now (dshow), not this one-line echo */
 static int
