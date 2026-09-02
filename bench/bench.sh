@@ -10,13 +10,13 @@ CC=$(compgen -c clang- 2>/dev/null|grep -xE 'clang-[0-9]+'|sort -t- -k2 -rn|head
 [[ -z "$CC" ]]&&echo "no C compiler"&&exit 1
 command -v hyperfine >/dev/null||{ echo "install hyperfine"; exit 1; }
 
-sed 's/lastflag = 0;/update(); _exit(0);/' "$DIR/e.c" > $TMP.c
+sed '/^main(/,/^loop:/s/^loop:/update();_exit(0);\n&/' "$DIR/e.c" > $TMP.c
 F="-w -std=gnu89 -O3 -march=native -flto"
-$CC $F -static -o $TMP $TMP.c 2>/dev/null||$CC $F -o $TMP $TMP.c
+{ command -v musl-gcc >/dev/null&&musl-gcc -std=gnu11 -D_GNU_SOURCE -O3 -march=native -flto -w -static -o $TMP $TMP.c 2>/dev/null;}||$CC $F -static -o $TMP $TMP.c 2>/dev/null||$CC $F -o $TMP $TMP.c   # same recipe as sh e.c: musl static first
 
 args=(--warmup 3 --min-runs 10 -N -i)
 args+=(-n "e"              "$TMP")
-args+=(-n "e (5.6k file)"  "$TMP $DIR/e.c")
+args+=(-n "e (own source)"  "$TMP $DIR/e.c")
 args+=(-n "ls"             "ls $DIR")
 # vi/nano need a pty to exit — use script(1) to provide one
 command -v nano >/dev/null && args+=(-n "nano" "script -q /dev/null nano -c ''")

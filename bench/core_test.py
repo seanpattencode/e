@@ -176,4 +176,65 @@ assert T.split("/")[-1] in e.text(), "dir view missing current path"
 ok("directory argument opens the browser")
 e.send(b"\x1b", t=0.1); e.exited()
 
+# 17. top-bar timer: every operation reports its own key->screen time, at 100ns resolution
+e = Ed([wfile("t.txt")], cols=132)
+TCOL = 132 - 53                                   # the timer field: 8 chars, then a space, then the position readout
+def timer(): return e.row(0)[TCOL:TCOL + 8].strip()
+def ms(t):
+    assert re.fullmatch(r"\d+(\.\d+)?ms", t), f"malformed timer reading {t!r}"
+    return float(t[:-2])
+boot = ms(timer())                                # startup: main() -> first frame
+assert 0 < boot < 500, f"implausible startup reading {boot}ms"
+seen = set()
+for k in (b"\x1b[B", b"\x1b[B", b"x", b"\x7f", b"\x1b[6~", b"\x06"):
+    e.send(k); v = ms(timer())
+    assert 0 < v < 500, f"implausible reading {v}ms after {k!r}"
+    seen.add(v)
+assert len(seen) > 1, f"timer never changed across operations: {seen}"
+assert min(seen) < boot, "no operation beat startup — timer looks frozen at the boot value"
+assert timer() != "0.0000ms", "timer reads zero"
+ok("top-bar timer reports each operation, not just startup")
+e.send(b"\x1b", t=0.1)                            # first ESC ends the i-search the loop left open
+e.send(b"\x1b", t=0.1); e.exited()
+
+# 18. i-search keeps the last pattern: ^F^F repeats it, and a search dismissed without typing
+#     still leaves it for search-again (Home). Regression: a rewrite cleared pat on entry.
+SDOC = "alpha one\nbeta two\nalpha three\ngamma four\n"
+e = Ed([wfile("s.txt", SDOC)])
+e.send(b"\x06alpha\x1b")                          # i-search alpha, ESC ends it on the 1st match
+e.send(b"\x06\x06\x1b"); e.send("X")             # reopen, ^F repeats -> 2nd match
+e.expect("alphaX three", msg="^F^F repeat last search")
+e.send(b"\x1b", t=0.1); e.exited()
+
+e = Ed([wfile("s2.txt", SDOC)])
+e.send(b"\x06alpha\x1b")
+e.send(b"\x06\x1b")                               # opened and dismissed without typing
+e.send(b"\x1b[1~"); e.send("X")                    # Home = search-again, pattern must have survived
+e.expect("alphaX three", msg="search-again after an untyped i-search")
+ok("i-search retains the last pattern for repeat and search-again")
+e.send(b"\x1b", t=0.1); e.exited()
+
+# 19. picker: typing searches the whole tree below the folder — this folder's hits rank first,
+#     deeper ones are shown by the path they came from, and Enter opens them.
+R = os.path.join(T, "rec"); os.makedirs(R + "/src/deep")
+open(R + "/report.txt", "w").write("top\n")
+open(R + "/src/report_helper.c", "w").write("mid\n")
+open(R + "/src/deep/report_deep.md", "w").write("low\n")
+e = Ed([R])
+e.send("report")
+e.expect("find: report (1 here, 2 below)", msg="here/below counts")
+hits = [l.strip() for l in e.screen() if "report" in l and "find:" not in l]
+assert hits[0] == "report.txt",                 f"this folder's hit must rank first: {hits[:3]}"
+assert hits[1] == "src/report_helper.c",        f"one level down comes next: {hits[:3]}"
+assert hits[2] == "src/deep/report_deep.md",    f"then deeper: {hits[:3]}"
+ok("picker searches below the folder: local first, deeper by depth, shown by path")
+e.send(b"\x1b", t=0.1); e.exited()
+
+e = Ed([R])
+e.send("report_deep"); e.send(b"\r")
+assert "src/deep/report_deep.md" in e.modeline(), f"Enter on a deeper hit must open it: {e.modeline()!r}"
+e.expect("low", msg="deeper file contents")
+ok("Enter on a deeper hit opens it by its path")
+e.send(b"\x1b", t=0.1); e.exited()
+
 print(f"\n{passed}/{passed} PASS")

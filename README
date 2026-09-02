@@ -1,14 +1,35 @@
-# Startup time (ms, hyperfine)
+# Startup time (ms, hyperfine -N via bench/bench.sh, 2026-08-31)
 
-| e    | nano | e (5.6k file) | vi   | uemacs | ls   | micro | nvim |
-|------|------|---------------|------|--------|------|-------|------|
-| 0.37 | 0.82 | 1.2           | 1.6  | 1.6    | 1.8  | 2.7   | 18.5 |
+| e (dir) | e (own source, 1.2k lines) | nano | vi   | ls  | nvim | nvim (file) | emacs |
+|---------|----------------------------|------|------|-----|------|-------------|-------|
+| 0.24    | 0.46                       | 0.51 | 0.51 | 1.8 | 17.4 | 121         | 31.5  |
 
-e opens a 5,600-line file in 1.2ms. nvim takes 223ms (383x slower).
-e renders a full interactive directory browser 3x faster than ls prints filenames.
-e is 2.8x faster than Torvalds's uemacs (same micro-emacs heritage).
+e opens a file in ~0.24ms (its own 1,242-line source: 0.46ms). nvim takes 121ms.
+e renders a full interactive directory browser 7x faster than ls prints filenames.
+e is faster than Torvalds's uemacs (same micro-emacs heritage): docs/why-faster-than-uemacs.md.
+The top bar times every operation, not just startup: the white reading is that keystroke's own
+path from bytes-arrived to frame-composed, in ms to 100ns resolution (an arrow key reads 0.0059ms).
+It is patched into the same write as the frame, so the measurement costs no extra syscall.
 
 bench/bench.sh
+
+# Finding a file: type in the browser
+
+`e .` (or `e --pick`) opens the directory browser; typing filters it. The filter searches the
+whole tree below the folder you are in, not just the folder itself:
+
+    find: report (1 here, 3 below)
+      report.txt                     <- this folder, always listed first
+      src/report_helper.c            <- deeper hits show the path they came from
+      src/deep/report_deep.md
+      src/deep/deeper/report_deepest.py
+
+Results are breadth-first, so the folder you are in comes before one level down, before two.
+Enter opens whichever hit is selected, at its path. The walk runs once per folder, on the first
+key you type, and is capped (16k entries / 250ms) so a huge or slow tree cannot freeze the
+editor — a capped result is marked with `+`. Dot-directories (`.git`) are skipped; dotfiles
+are not.
+
 
 # Build & install (self-compiling, requires gcc/clang)
 

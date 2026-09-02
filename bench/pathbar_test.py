@@ -94,7 +94,8 @@ e.clear(); e.send(b"\x0c"); e.shows(DIRA + "/sub/", HINT)
 e.send(b"\x7f" * 4); e.send(b"\r"); e.wait_for("other.txt"); e.wait_for(LIST); ok("backspace-edit + Enter goes to parent")
 
 # --- plain typing still filters the listing ---
-e.clear(); e.send("su"); e.wait_for("find: su (1/3)"); ok("plain typing filters (1/3; '..','sub','other.txt')")
+e.clear(); e.send("su"); e.wait_for("find: su (1 here, 1 below)")     # 'sub' here, 'sub/f.txt' below it
+e.wait_for("sub/f.txt"); ok("typing filters this folder AND below it, local first, deeper shown by path")
 e.send(b"\x7f\x7f")
 
 # --- '/'-first is an absolute go path, not a filter, no cwd seeding ---
@@ -176,7 +177,7 @@ open(DIRA + "/" + LONG, "w").write("doc\n")
 for f in (OUT, HOME + "/.e_pick"):
     if os.path.exists(f): os.remove(f)
 e = Ed(["--pick", OUT, DIRA], cwd=T); e.wait_for("^L edit path")
-e.send("Whats"); e.wait_for("(1/4)"); e.send(b"\r")
+e.send("Whats"); e.wait_for("(1 here, 0 below)"); e.send(b"\r")
 assert e.exited() == 0 and open(OUT).read() == os.path.realpath(DIRA + "/" + LONG), open(OUT).read()
 ok("94-char filename: filter + Enter picks the full path (was a silent no-op at 63)")
 
