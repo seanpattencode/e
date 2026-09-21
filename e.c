@@ -48,6 +48,7 @@ static int fold_a=1;
 static int ro_flag;
 static long start_off=-1;
 static const char *pos_out_path;
+static const char *start_pat;	/* +/pattern: open at first line containing pattern */
 #define LSA(lp) (llength(lp)>=12&&!memcmp((lp)->l_text,"## a-loaded ",12))
 #define LSE(lp) (llength(lp)>=15&&!memcmp((lp)->l_text,"## a-loaded-end",15))
 #define FSKIP(lp,bp) do{lp=lforw(lp);while(lp!=(bp)->b_linep&&!LSE(lp))lp=lforw(lp);if(lp!=(bp)->b_linep)lp=lforw(lp);}while(0)
@@ -95,7 +96,7 @@ static struct timespec fmt,tz;	/* mtime at load; ttgetc polls it (100ms, 0.6µs/
 #define	NBLOCK	16
 #define	KBLOCK	256
 static char*kbufp;static int kused,ksize;
-typedef struct{char*n;char d;}Dent; /* n -> dpool, full NAME_MAX (n[64] broke Enter on long names) */
+typedef struct{char*n;char d;long m;}Dent; /* n -> dpool, full NAME_MAX (n[64] broke Enter on long names); m: mtime, -1 until needed */
 #define DENTMAX 16384	/* 512 hid files in big dirs (658-file ~/Downloads); the recursive find shares this room */
 static Dent dents[DENTMAX];static char dpool[DENTMAX*96];static int dcnt;static short dview[DENTMAX];static int dvn;
 #define DROWS 500	/* rows built per view: every match is counted, but nobody scrolls past a few hundred — building 16k lines cost 5ms a keystroke */
@@ -369,7 +370,8 @@ dents[dall].d=e->d_type==DT_DIR;
 strlcpy(dents[dall++].n=dpool+dpo,p,1024);dpo+=(int)strlen(dpool+dpo)+1;}
 closedir(d);}
 }
-static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
+static char sortlab[15]="[sort: a-z]";static int dsort,barmore;	/* 0 name, 1 mtime desc; top-left button + ^U flip it. barmore = [more] overflow open */
+static int dentcmp(const void*a,const void*b){Dent*x=(Dent*)a,*y=(Dent*)b;if(dsort){if(x->m!=y->m)return y->m>x->m?1:-1;}else if(x->d!=y->d)return y->d-x->d;return strcasecmp(x->n,y->n);}
 static int dishdr(LINE*lp){return dhdr&&lp==lforw(curbp->b_linep);}
 static int dentidx(LINE*lp){LINE*l=lforw(curbp->b_linep);int i=0;if(dhdr&&l!=curbp->b_linep)l=lforw(l);for(;l!=lp&&l!=curbp->b_linep&&i<dvn-1;i++)l=lforw(l);return i;}
 static char*dname(LINE*lp){return (dvn&&!dishdr(lp))?dents[dview[dentidx(lp)]].n:"";}
@@ -685,11 +687,14 @@ while(n<=d)b[n++]='0';	/* leading zeros so the point always keeps a digit on its
 for(i=n-1;i>=0;i--){opstr[j++]=b[i];if(i==d&&d)opstr[j++]='.';}
 opstr[j++]='m';opstr[j++]='s';while(j<8)opstr[j++]=' ';opstr[j]=0;
 }
-static const struct{short at,w;const char*t;char a;}bar[]={	/* offsets from the right edge; paint and hit-test read the same columns */
-{-60,7,"[FIND]",HL_STR},{-39,3,"[^]",HL_KW},{-35,3,"[v]",HL_KW},{-31,7,"[SPEAK]",HL_NUM},{-23,6,"[STOP]",HL_KW},{-15,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW}};
+static const struct{short at,w;const char*t;char a;}bar[]={	/* at<0: cols from the right edge; at>=0: from the left. barp() gates paint AND hit-test, so they can't drift */
+{-60,7,"[FIND]",HL_STR},{-39,3,"[^]",HL_KW},{-35,3,"[v]",HL_KW},{-23,7,"[SPEAK]",HL_NUM},{-23,6,"[STOP]",HL_KW},{-15,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-31,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-44,4,pos_str,HL_NUM}};
 #define NBAR (int)(sizeof bar/sizeof bar[0])
-static int barhit(int x)	/* which button x is on, or -1; one off a narrow terminal is not there to hit */
-{int i;for(i=0;i<NBAR;i++)if(ncol+bar[i].at>=0&&x>=ncol+bar[i].at&&x<ncol+bar[i].at+bar[i].w)return i;return -1;}
+static int barp(int i)	/* button i's start col, or -1 when hidden: [SPEAK] only in the open [more] overflow (borrowing [STOP]'s slot), [STOP] only while `a say` is alive, sort state only in dirmode with room left of the timer */
+{int p=bar[i].at<0?ncol+bar[i].at:bar[i].at;
+return p>=0&&(i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode&&ncol>=68:1)?p:-1;}
+static int barhit(int x)	/* which live button x is on, or -1; hidden or off a narrow terminal is not there to hit */
+{int i,p;for(i=0;i<NBAR;i++)if((p=barp(i))>=0&&x>=p&&x<p+bar[i].w)return i;return -1;}
 static void tb(int at,const char*t,int a){int i;if(at<0)return;for(i=0;t[i]&&at+i<ncol;i++){vscreen[0]->v_text[at+i]=t[i];vscreen[0]->v_attr[at+i]=(char)a;}}	/* a field starting off-screen is dropped whole: "941ms" for 0.0941ms is worse than none */
 static void
 vteeol(void)
@@ -697,9 +702,7 @@ vteeol(void)
 VIDEO*vp=vscreen[vtrow];
 while(vtcol<ncol)vp->v_text[vtcol++]=' ';
 if(vtrow)return;
-{int i,n=ncol<53?ncol:ncol<60?53:60;memset(vp->v_text+ncol-n,' ',(size_t)n);	/* clear the strip, then lay it out; [STOP] only while `a say` is alive */
-tb(ncol-53,opstr,HL_WHITE);tb(ncol-44,pos_str,HL_NUM);
-for(i=0;i<NBAR;i++)if(i!=4||speak_running())tb(ncol+bar[i].at,bar[i].t,bar[i].a);}
+{int i;for(i=0;i<NBAR;i++)tb(barp(i),bar[i].t,bar[i].a);}	/* the fill above already blanked the row */
 }
 static void opend(int r,int c)	/* patched into the frame's own write: no extra syscall, and it covers everything but that write */
 {
@@ -859,7 +862,7 @@ if(dpath()){ /* path mode: the path is one wrapping buffer line, cursor at its e
 if((l=dadd(dirsrch,dirsl))){curwp->w_linep=curwp->w_dotp=l;curwp->w_doto=dirsl;
 {int wr=wrap_rows(l),nt=curwp->w_ntrows;curwp->w_skip=wr>nt?wr-nt:0;} /* keep the edit point on-screen */
 curwp->w_flag|=WFHARD|WFMODE;}return;}
-{char cw[1024];if(getcwd(cw,sizeof cw)){dadd(cw,(int)strlen(cw));dhdr=1;}} /* cwd as a wrapping header row (never truncated) */
+{char cw[1040];int m;if(getcwd(cw,1024)){m=(int)strlen(cw);if(barp(7)<0)m+=sprintf(cw+m,"  %s",sortlab);dadd(cw,m);dhdr=1;}} /* cwd as a wrapping header row (never truncated); no room for the top-bar sort button -> its state rides here, so thin windows still show it */
 if(dirsl&&!rdone)rscan();	/* the first key of a filter pays for the walk; it is cached until you leave the folder */
 lim=dirsl?dall:dcnt;	/* no filter: just this folder. filtering: the whole tree below it, this folder first */
 for(i=0;i<lim;i++){
@@ -881,14 +884,16 @@ if(getcwd(dirsrch,sizeof dirsrch)){dirsl=(int)strlen(dirsrch);
 if(dirsl>1&&dirsl<1023){dirsrch[dirsl++]='/';dirsrch[dirsl]=0;}
 dbar();}
 return TRUE;}
+static void dstat(void)	/* fill mtimes lazily: alphabetical mode never pays for the stats */
+{int i;struct stat st;for(i=0;i<dcnt;i++)if(dents[i].m<0)dents[i].m=stat(dents[i].n,&st)?0:(long)st.st_mtime;}
 static int
 filldir(char *p)
 {DIR*d;struct dirent*e;int c=0,o=0;
 if(!(d=opendir(p)))return 0;chdir(p);getcwd(curbp->b_fname,NFILEN);
 if(pick_out){FILE*g;if((g=fopen(pickmem(),"w"))){fputs(curbp->b_fname,g);fclose(g);}}	/* remember the browsed dir for the next --pick */
-while((e=readdir(d))&&c<DENTMAX&&o<(int)sizeof dpool-260){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;strlcpy(dents[c++].n=dpool+o,e->d_name,256);o+=(int)strlen(dpool+o)+1;}
-closedir(d);qsort(dents,c,sizeof(Dent),dentcmp);dcnt=dall=c;dpo=o;rdone=rcut=0;dirmode=1;dirsl=0;dirsrch[0]=0;dshow();
-eprintf("%d items · type to filter (searches subfolders too) · ^L edit path",c);return 1;}
+while((e=readdir(d))&&c<DENTMAX&&o<(int)sizeof dpool-260){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;dents[c].m=-1;strlcpy(dents[c++].n=dpool+o,e->d_name,256);o+=(int)strlen(dpool+o)+1;}
+closedir(d);dcnt=dall=c;dpo=o;if(dsort)dstat();qsort(dents,c,sizeof(Dent),dentcmp);rdone=rcut=0;dirmode=1;dirsl=0;dirsrch[0]=0;dshow();
+eprintf("%d items · type to filter (searches subfolders too) · ^L edit path · ^U sort",c);return 1;}
 static int
 readin(char * fname)
 {
@@ -973,6 +978,10 @@ eprintf("find: %s (%d here, %d below%s) -> %s",dirsl?dirsrch:"",dhere,dbelow,dcu
 static void dfilter(void) /* [FIND] button while browsing: prompt a filter — the mouse-only route to narrowing */
 {char q[64];if(ereply("filter: ",q,64)!=TRUE)q[0]=0;
 strlcpy(dirsrch,q,64);dirsl=(int)strlen(dirsrch);dshow();dfind();}
+static int dosort(int k)	/* ^U / top-left sort button: flip name-sort <-> most-recent-first and re-list */
+{dsort^=1;strcpy(sortlab,dsort?"[sort: newest]":"[sort: a-z]");
+if(!dirmode){eprintf("[sort: %s]",dsort?"most recent":"a-z");return TRUE;}
+if(dsort)dstat();qsort(dents,dcnt,sizeof(Dent),dentcmp);dshow();dfind();return TRUE;}
 static int
 selfinsert(int k)
 {
@@ -1150,7 +1159,7 @@ if(y==0&&ch=='M'){int h=barhit(x);
 if(h==6){quit(0);goto loop;}
 if(h==1){backpage(0);update();goto loop;}
 if(h==2){forwpage(0);update();goto loop;}
-if(h==3){speak_line(0);goto loop;}
+if(h==3){speak_line(0);barmore=0;update();goto loop;}
 if(h==4){stop_speak(0);goto loop;}
 if(h==5){
 char fn[NFILEN]="";FILE*fp;
@@ -1163,6 +1172,8 @@ fp=popen("zenity --file-selection 2>/dev/null || kdialog --getopenfilename . 2>/
 if(fp){if(fgets(fn,NFILEN,fp))fn[strcspn(fn,"\n")]=0;pclose(fp);}
 if(fn[0]){readin(fn);sgarbf=TRUE;}else eprintf("[Cancelled]");
 goto loop;}
+if(h==7){dosort(0);update();goto loop;}
+if(h==8){barmore^=1;update();goto loop;}
 if(h==0)goto loop;}	/* [FIND] acts on release: on press the release's ESC seq would land inside isearch */
 if(y==0&&ch=='m'&&barhit(x)==0){if(dirmode)dfilter();else forwisearch(0);update();goto loop;}	/* [FIND] in the browser = filter prompt, not buffer isearch */
 if(row>=0&&row<curwp->w_ntrows) {
@@ -1205,7 +1216,7 @@ static int backline(int k){LINE*lp=curwp->w_dotp;if(!(lastflag&CFCPCN))setgoal()
 #define	DIRLIST	0
 #if	DIRLIST
 #endif
-static KFN ctl[26]={selectall,backdir,copyregion,quit,gotoeol,forwisearch,gotoline,queryrepl,selfinsert,indent,killline,dloc,newline,forwline,filevisit,backline,quit,backisearch,filesave,speak_line,0,yank,quit,killregion,stop_speak,undo};	/* ^A..^Z, VSCode-style */
+static KFN ctl[26]={selectall,backdir,copyregion,quit,gotoeol,forwisearch,gotoline,queryrepl,selfinsert,indent,killline,dloc,newline,forwline,filevisit,backline,quit,backisearch,filesave,speak_line,dosort,yank,quit,killregion,stop_speak,undo};	/* ^A..^Z, VSCode-style; ^U = sort toggle */
 static void
 keymapinit(void)
 {
@@ -1230,6 +1241,7 @@ else if(!strcmp(argv[1],"--tail")){tail_flag=1;argv++;argc--;}
 else if(!strcmp(argv[1],"--nofold")){fold_a=0;argv++;argc--;}
 else if(!strcmp(argv[1],"-r")){ro_flag=1;argv++;argc--;}
 else if(!strcmp(argv[1],"-w")){wq_flag=1;argv++;argc--;}
+else if(argv[1][0]=='+'&&argv[1][1]=='/'){start_pat=argv[1]+2;argv++;argc--;}
 else if(argv[1][0]=='+'&&argv[1][1]){start_off=atol(argv[1]+1);argv++;argc--;}
 else if(argc>=3&&!strcmp(argv[1],"--pos-out")){pos_out_path=argv[2];argv+=2;argc-=2;}
 else if(argc>=3&&!strcmp(argv[1],"--pick")){pick_out=argv[2];argv+=2;argc-=2;}
@@ -1250,6 +1262,10 @@ curwp->w_dotp=lp;curwp->w_doto=llength(lp);curwp->w_flag|=WFHARD;}
 if(start_off>=0){LINE*lp=lforw(curbp->b_linep);long off=start_off;
 while(lp!=curbp->b_linep&&off>llength(lp)){off-=llength(lp)+1;lp=lforw(lp);}
 if(lp!=curbp->b_linep){curwp->w_dotp=lp;curwp->w_doto=(int)off;curwp->w_flag|=WFHARD;}}
+if(start_pat){int pl=(int)strlen(start_pat);LINE*lp;
+for(lp=lforw(curbp->b_linep);lp!=curbp->b_linep;lp=lforw(lp)){int i=0;
+while(i+pl<=llength(lp)&&memcmp(lp->l_text+i,start_pat,(size_t)pl))i++;
+if(i+pl<=llength(lp)){curwp->w_dotp=lp;curwp->w_doto=i;curwp->w_flag|=WFHARD;break;}}}
 lastflag=0;
 loop:
 if(resized)winch();
