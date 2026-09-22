@@ -174,6 +174,28 @@ e = Ed([T])
 e.expect("a.txt", msg="dir browser")
 assert T.split("/")[-1] in e.text(), "dir view missing current path"
 ok("directory argument opens the browser")
+
+# 16b. sort state is announced top-left; [SPEAK] lives under the [more] overflow
+e.expect("[sort: a-z]", msg="sort state on top bar")
+e.send(b"\x15"); e.expect("[sort: newest]", msg="^U flips sort + label")
+assert "[SPEAK]" not in e.text(), "SPEAK visible before [more] opened"
+MORE = b"\x1b[<0;50;1M\x1b[<0;50;1m"              # click [more] (col 80-31 -> 1-based 50)
+e.expect("[more]", msg="overflow button"); e.send(MORE)
+e.expect("[SPEAK]", msg="overflow opens")
+e.send(MORE)
+assert "[SPEAK]" not in e.text(), "overflow did not close"
+ok("sort state top-left; [SPEAK] under [more]")
+e.send(b"\x1b", t=0.1); e.exited()
+
+# 16c. thin window (browser epick tile): sort still LEADS the top bar, click + ^U toggle it,
+#      right-anchored buttons yield instead of pushing it onto the header row
+e = Ed([T], cols=60)
+e.expect("[sort: a-z]", 0, msg="thin: sort leads top bar")
+assert not any("[sort:" in r for r in e.screen()[1:]), "sort rode the header row"
+SORT = b"\x1b[<0;3;1M\x1b[<0;3;1m"                # press row 1 col 3 = the sort button
+e.send(SORT); e.expect("[sort: newest]", 0, msg="thin: click flips sort")
+e.send(b"\x15"); e.expect("[sort: a-z]", 0, msg="thin: ^U still flips")
+ok("thin window: sort first on top bar, click + ^U toggle")
 e.send(b"\x1b", t=0.1); e.exited()
 
 # 17. top-bar timer: every operation reports its own key->screen time, at 100ns resolution
