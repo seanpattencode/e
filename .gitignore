@@ -2,3 +2,13 @@
 .aider*
 __pycache__/
 bench/core
+
+# Android port of e: an untracked 8 MB gradle subproject (source + regenerable build/).
+# Never been in git — ignoring it wholesale only stops it flooding `a diff`/status; files stay on disk.
+# graph.bin (gradle desugar cache) lives under android/app/build/. Rebuild: android/build.sh.
+# To version the port instead, drop this line and `git add` the source (keep build/ .gradle/ *.so out).
+android/
+
+# stray artifacts that also polluted `a diff`
+.a_done
+e.test
