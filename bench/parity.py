@@ -26,12 +26,13 @@ def screen(binary, args, keys=b""):
             except OSError: return
     pump(0.5)
     if keys: os.write(fd, keys); pump(0.4)
-    os.write(fd, b"\x1b"); pump(0.3)
-    try: os.waitpid(pid, 0)
-    except Exception: pass
     cell = lambda y, x: ("*", 0, 0) if (y == 0 and TIMER[0] <= x < TIMER[1]) else \
                         (sc.buffer[y][x].data, sc.buffer[y][x].fg, sc.buffer[y][x].reverse)
-    return [tuple(cell(y, x) for x in range(COLS)) for y in range(ROWS)]
+    rows = [tuple(cell(y, x) for x in range(COLS)) for y in range(ROWS)]
+    os.write(fd, b"\x1b"); pump(0.3)      # quit AFTER the snapshot: e's exit clear (ttclose 2J) blanked every capture, so parity compared empty screens and passed anything
+    try: os.waitpid(pid, 0)
+    except Exception: pass
+    return rows
 
 def main():
     t = tempfile.mkdtemp(prefix="e_parity_")
