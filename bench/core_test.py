@@ -259,4 +259,16 @@ e.expect("low", msg="deeper file contents")
 ok("Enter on a deeper hit opens it by its path")
 e.send(b"\x1b", t=0.1); e.exited()
 
+# 20. PgDn/wheel at EOF pins on the bottom screenful — regression: it alternated between two spots
+f = wfile("pg.txt", "\n".join(f"line{i} alpha{i}" for i in range(1, 41)) + "\n")
+e = Ed([f])
+for _ in range(3): e.send(b"\x1b[6~")
+s1 = e.screen()[1:]                                # row 0 masked: the top-bar timer changes every op
+e.send(b"\x1b[6~");         s2 = e.screen()[1:]
+e.send(b"\x1b[<65;5;5M");   s3 = e.screen()[1:]    # one wheel-down notch
+assert any("line40" in r for r in s1), "PgDn never reached the EOF screenful"
+assert s1 == s2 == s3, "scroll at the bottom moved the view"
+ok("PgDn/wheel pin at the bottom screenful (no bounce)")
+e.send(b"\x1b", t=0.1); e.exited()
+
 print(f"\n{passed}/{passed} PASS")

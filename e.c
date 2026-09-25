@@ -840,14 +840,15 @@ ttbeep();
 return ABORT;
 }
 static int
-forwpage(int k)
+forwpage(int k)	/* k==KPREV pages up; down clamps by wrap rows: the bottom screenful is a fixpoint — no EOF bounce */
 {
-LINE*lp=curwp->w_linep;int n=curwp->w_ntrows-2;if(n<=0)n=1;
-while(n--&&lp!=curbp->b_linep)lp=lforw(lp);
-if(lp==curbp->b_linep){n=curwp->w_ntrows-1;while(n--&&lback(lp)!=curbp->b_linep)lp=lback(lp);}	/* overshot the end: keep the last screenful in view */
+LINE*lp=curwp->w_linep,*p;int n=curwp->w_ntrows-2,r=curwp->w_ntrows;if(n<=0)n=1;
+if(k==KPREV)while(n--&&lback(lp)!=curbp->b_linep)lp=lback(lp);
+else{while(n--&&lp!=curbp->b_linep)lp=lforw(lp);
+for(p=lp;p!=curbp->b_linep&&r>0;p=lforw(p))r-=wrap_rows(p);
+while(r>0&&lback(lp)!=curbp->b_linep&&((r-=wrap_rows(lback(lp)))>=0||lp==curbp->b_linep))lp=lback(lp);}
 curwp->w_linep=curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFHARD;return TRUE;
 }
-static int backpage(int k){LINE*lp=curwp->w_linep;int n=curwp->w_ntrows-2;if(n<=0)n=1;while(n--&&lback(lp)!=curbp->b_linep)lp=lback(lp);curwp->w_linep=curwp->w_dotp=lp;curwp->w_doto=0;curwp->w_flag|=WFHARD;return TRUE;}
 static int
 eyesno(char * sp)
 {
@@ -1152,12 +1153,12 @@ int b=0,x=0,y=0,ch,row; LINE *lp;
 while((ch=ttgetc())!=';') b=b*10+ch-'0';
 while((ch=ttgetc())!=';') x=x*10+ch-'0';
 while((ch=ttgetc())!='M'&&ch!='m') y=y*10+ch-'0';
-if(b>=64&&b<128){if(!(b&2)){if(b&1)forwpage(0);else backpage(0);}curwp->w_flag|=WFHARD;update();goto loop;}	/* wheel pages; 66/67 (tilt) ignored */
+if(b>=64&&b<128){if(!(b&2))forwpage(b&1?0:KPREV);curwp->w_flag|=WFHARD;update();goto loop;}	/* wheel pages; 66/67 (tilt) ignored */
 x--; y--; row=y-curwp->w_toprow;
 if(b&32)goto loop;
 if(y==0&&ch=='M'){int h=barhit(x);
 if(h==6){quit(0);goto loop;}
-if(h==1){backpage(0);update();goto loop;}
+if(h==1){forwpage(KPREV);update();goto loop;}
 if(h==2){forwpage(0);update();goto loop;}
 if(h==3){speak_line(0);barmore=0;update();goto loop;}
 if(h==4){stop_speak(0);goto loop;}
@@ -1223,7 +1224,7 @@ keymapinit(void)
 int i;
 for(i=0x20;i<0xFF;i++)if(i<0x7F||i>=0xA0)binding[i]=selfinsert;	/* 0x80-0x9F are the DEC key codes; every other byte inserts itself (UTF-8 bytes included) */
 for(i=0;i<26;i++)binding[KCTRL|('A'+i)]=ctl[i];
-binding[KCTRL|'@']=setmark;binding[KLEFT]=backchar;binding[KRIGHT]=forwchar;binding[KCTRL|'[']=ctrlg;binding[0x7F]=backdel;binding[KNEXT]=forwpage;binding[KPREV]=backpage;binding[KSELECT]=gotoeob;binding[KFIND]=searchagain;binding[KINSERT]=yank;binding[KREMOVE]=killregion;binding[KUP]=backline;binding[KDOWN]=forwline;
+binding[KCTRL|'@']=setmark;binding[KLEFT]=backchar;binding[KRIGHT]=forwchar;binding[KCTRL|'[']=ctrlg;binding[0x7F]=backdel;binding[KNEXT]=forwpage;binding[KPREV]=forwpage;binding[KSELECT]=gotoeob;binding[KFIND]=searchagain;binding[KINSERT]=yank;binding[KREMOVE]=killregion;binding[KUP]=backline;binding[KDOWN]=forwline;
 }
 #include	<signal.h>
 #ifdef HAVE_CONFIG_H
