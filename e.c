@@ -688,11 +688,11 @@ for(i=n-1;i>=0;i--){opstr[j++]=b[i];if(i==d&&d)opstr[j++]='.';}
 opstr[j++]='m';opstr[j++]='s';while(j<8)opstr[j++]=' ';opstr[j]=0;
 }
 static const struct{short at,w;const char*t;char a;}bar[]={	/* at<0: cols from the right edge; at>=0: from the left. barp() gates paint AND hit-test, so they can't drift */
-{-60,7,"[FIND]",HL_STR},{-39,3,"[^]",HL_KW},{-35,3,"[v]",HL_KW},{-23,7,"[SPEAK]",HL_NUM},{-23,6,"[STOP]",HL_KW},{-15,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-31,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-44,4,pos_str,HL_NUM}};
+{-60,7,"[FIND]",HL_STR},{-39,3,"[^]",HL_KW},{-35,3,"[v]",HL_KW},{-23,7,"[SPEAK]",HL_NUM},{-23,6,"[STOP]",HL_KW},{-15,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-31,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-44,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW}};
 #define NBAR (int)(sizeof bar/sizeof bar[0])
-static int barp(int i)	/* button i's start col, or -1 when hidden: [SPEAK] only in the open [more] overflow (borrowing [STOP]'s slot), [STOP] only while `a say` is alive; in dirmode the sort button leads the bar and right-anchored items yield to it in thin windows */
+static int barp(int i)	/* button i's start col, or -1 when hidden: [SPEAK] only in the open [more] overflow (borrowing [STOP]'s slot), [STOP] only while `a say` is alive, [TERM] (tmux shell split below) only in file mode wide enough that [FIND] can't overlap it; in dirmode the sort button leads the bar and right-anchored items yield to it in thin windows */
 {int p=bar[i].at<0?ncol+bar[i].at:bar[i].at;
-return p>=(dirmode&&bar[i].at<0?15:0)&&(i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode:1)?p:-1;}
+return p>=(dirmode&&bar[i].at<0?15:0)&&(i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode:i==11?!dirmode&&ncol>65:1)?p:-1;}
 static int barhit(int x)	/* which live button x is on, or -1; hidden or off a narrow terminal is not there to hit */
 {int i,p;for(i=0;i<NBAR;i++)if((p=barp(i))>=0&&x>=p&&x<p+bar[i].w)return i;return -1;}
 static void tb(int at,const char*t,int a){int i;if(at<0)return;for(i=0;t[i]&&at+i<ncol;i++){vscreen[0]->v_text[at+i]=t[i];vscreen[0]->v_attr[at+i]=(char)a;}}	/* a field starting off-screen is dropped whole: "941ms" for 0.0941ms is worse than none */
@@ -1175,6 +1175,7 @@ if(fn[0]){readin(fn);sgarbf=TRUE;}else eprintf("[Cancelled]");
 goto loop;}
 if(h==7){dosort(0);update();goto loop;}
 if(h==8){barmore^=1;update();goto loop;}
+if(h==11){if(system("tmux split-window -v -l 25% -c \"#{pane_current_path}\""))eprintf("[tmux split failed]");goto loop;}
 if(h==0)goto loop;}	/* [FIND] acts on release: on press the release's ESC seq would land inside isearch */
 if(y==0&&ch=='m'&&barhit(x)==0){if(dirmode)dfilter();else forwisearch(0);update();goto loop;}	/* [FIND] in the browser = filter prompt, not buffer isearch */
 if(row>=0&&row<curwp->w_ntrows) {
