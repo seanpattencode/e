@@ -4,10 +4,10 @@ e has no draggable scrollbar. It had one; it was buggy, cost a full-buffer
 walk per render, and a thumb you drag is the wrong tool when a page jump is
 instant (~50µs). Removed.
 
-Pagination lives in the top bar and is always visible:
+Pagination lives in the top bar:
 
-  [^] [v]   page up / page down (full screen, instant) — click, or PgUp/PgDn
-   42%      position readout: Top / Bot / All / NN% through the buffer
+  [more] › [^] [v]   page up / page down (full screen, instant) — or PgUp/PgDn
+   42%              position readout: 0% = first line on top, 100% = last line on screen
 
 Also: mouse wheel (full page per notch), type-ahead search. Page-down stops
 on the last screenful — it never scrolls into blank past EOF.

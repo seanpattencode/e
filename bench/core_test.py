@@ -175,16 +175,18 @@ e.expect("a.txt", msg="dir browser")
 assert T.split("/")[-1] in e.text(), "dir view missing current path"
 ok("directory argument opens the browser")
 
-# 16b. sort state is announced top-left; [SPEAK] lives under the [more] overflow
+# 16b. sort state is announced top-left; [SPEAK] [ADD FILE] [^] [v] live under the [more] overflow
 e.expect("[sort: a-z]", msg="sort state on top bar")
 e.send(b"\x15"); e.expect("[sort: newest]", msg="^U flips sort + label")
-assert "[SPEAK]" not in e.text(), "SPEAK visible before [more] opened"
-MORE = b"\x1b[<0;50;1M\x1b[<0;50;1m"              # click [more] (col 80-31 -> 1-based 50)
+for b in ("[SPEAK]", "[ADD FILE]", "[^]", "[v]"):
+    assert b not in e.text(), f"{b} visible before [more] opened"
+MORE = b"\x1b[<0;73;1M\x1b[<0;73;1m"              # click [more] (col 80-10 -> 1-based 71..76)
 e.expect("[more]", msg="overflow button"); e.send(MORE)
-e.expect("[SPEAK]", msg="overflow opens")
+for b in ("[SPEAK]", "[ADD FILE]", "[^]", "[v]"):
+    e.expect(b, 0, msg="overflow opens")
 e.send(MORE)
 assert "[SPEAK]" not in e.text(), "overflow did not close"
-ok("sort state top-left; [SPEAK] under [more]")
+ok("sort state top-left; [SPEAK] [ADD FILE] [^] [v] under [more]")
 e.send(b"\x1b", t=0.1); e.exited()
 
 # 16c. thin window (browser epick tile): sort still LEADS the top bar, click + ^U toggle it,
@@ -262,13 +264,16 @@ e.send(b"\x1b", t=0.1); e.exited()
 # 20. PgDn/wheel at EOF pins on the bottom screenful — regression: it alternated between two spots
 f = wfile("pg.txt", "\n".join(f"line{i} alpha{i}" for i in range(1, 41)) + "\n")
 e = Ed([f])
+POS = slice(80 - 44, 80 - 40)                      # the position readout field on the top bar
+assert e.row(0)[POS] == "  0%", f"readout at the top of a long file: {e.row(0)[POS]!r}"
 for _ in range(3): e.send(b"\x1b[6~")
 s1 = e.screen()[1:]                                # row 0 masked: the top-bar timer changes every op
 e.send(b"\x1b[6~");         s2 = e.screen()[1:]
 e.send(b"\x1b[<65;5;5M");   s3 = e.screen()[1:]    # one wheel-down notch
 assert any("line40" in r for r in s1), "PgDn never reached the EOF screenful"
 assert s1 == s2 == s3, "scroll at the bottom moved the view"
-ok("PgDn/wheel pin at the bottom screenful (no bounce)")
+assert e.row(0)[POS] == "100%", f"readout once the last line is on screen: {e.row(0)[POS]!r}"
+ok("PgDn/wheel pin at the bottom screenful (no bounce); readout runs 0% -> 100%")
 e.send(b"\x1b", t=0.1); e.exited()
 
 print(f"\n{passed}/{passed} PASS")

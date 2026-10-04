@@ -80,7 +80,7 @@ typedef struct LINE{struct LINE*l_fp,*l_bp;short l_size,l_used;char l_text[1];}L
 #define	llength(lp)	((lp)->l_used)
 static int thisflag,lastflag,curgoal,epresf,sgarbf=TRUE,nrow,ncol,ttrow=-1,ttcol=-1,tthue,vtrow,vtcol;static WINDOW*curwp;static BUFFER*curbp;static char pat[NPAT];static KFN binding[2048];
 static int lgen; /* bumps when lines are added/removed — invalidates pos cache */
-static char pos_str[5]="All ";	/* top-bar pagination readout: Top/Bot/All/NN%% */
+static char pos_str[5];	/* top-bar pagination readout, 0%%..100%% */
 static struct timespec opt0;static char opstr[12]="0.0000ms";	/* opt0: when this operation began (main(), or the read() that delivered its keys) */
 static LINE *fe_lp; static int fe_wr;	/* dot line + wrap rows at last update — WFEDIT fast path */
 #include	<termios.h>
@@ -688,11 +688,11 @@ for(i=n-1;i>=0;i--){opstr[j++]=b[i];if(i==d&&d)opstr[j++]='.';}
 opstr[j++]='m';opstr[j++]='s';while(j<8)opstr[j++]=' ';opstr[j]=0;
 }
 static const struct{short at,w;const char*t;char a;}bar[]={	/* at<0: cols from the right edge; at>=0: from the left. barp() gates paint AND hit-test, so they can't drift */
-{-60,7,"[FIND]",HL_STR},{-39,3,"[^]",HL_KW},{-35,3,"[v]",HL_KW},{-23,7,"[SPEAK]",HL_NUM},{-23,6,"[STOP]",HL_KW},{-15,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-31,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-44,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW}};
+{-60,7,"[FIND]",HL_STR},{-37,3,"[^]",HL_KW},{-33,3,"[v]",HL_KW},{-29,7,"[SPEAK]",HL_NUM},{-29,6,"[STOP]",HL_KW},{-21,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-10,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-44,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW}};
 #define NBAR (int)(sizeof bar/sizeof bar[0])
-static int barp(int i)	/* button i's start col, or -1 when hidden: [SPEAK] only in the open [more] overflow (borrowing [STOP]'s slot), [STOP] only while `a say` is alive, [TERM] (tmux shell split below) file mode only, [FIND] yields it the left edge when too narrow (search stays on C-f); in dirmode the sort button leads the bar and right-anchored items yield to it in thin windows */
+static int barp(int i)	/* button i's start col, or -1 when hidden: [^] [v] [SPEAK] [ADD FILE] live in the [more] overflow, left of [more] ([STOP] takes [SPEAK]'s slot while `a say` is alive); [TERM] (tmux shell split below) file mode only, [FIND] yields it the left edge when too narrow (search stays on C-f); in dirmode the sort button leads the bar and right-anchored items yield to it in thin windows */
 {int p=bar[i].at<0?ncol+bar[i].at:bar[i].at;
-return p>=(dirmode&&bar[i].at<0?15:0)&&(i==0?dirmode||ncol>65:i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode:i==11?!dirmode:1)?p:-1;}
+return p>=(dirmode&&bar[i].at<0?15:0)&&(i==0?dirmode||ncol>65:i==1||i==2||i==5?barmore:i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode:i==11?!dirmode:1)?p:-1;}
 static int barhit(int x)	/* which live button x is on, or -1; hidden or off a narrow terminal is not there to hit */
 {int i,p;for(i=0;i<NBAR;i++)if((p=barp(i))>=0&&x>=p&&x<p+bar[i].w)return i;return -1;}
 static void tb(int at,const char*t,int a){int i;if(at<0)return;for(i=0;t[i]&&at+i<ncol;i++){vscreen[0]->v_text[at+i]=t[i];vscreen[0]->v_attr[at+i]=(char)a;}}	/* a field starting off-screen is dropped whole: "941ms" for 0.0941ms is worse than none */
@@ -728,17 +728,6 @@ update(void)
 {
 LINE	*lp;WINDOW	*wp;int i,currow,curcol;
 if(curwp->w_markp&&(curwp->w_flag&WFMOVE))curwp->w_flag |= WFHARD;
-{static LINE *cl;static int cg=-1,ca,ct;static long cac,ctc;
-int a, t, h=curwp->w_ntrows; long ac, tc;
-if(cl==curwp->w_linep&&cg==lgen){a=ca;t=ct;ac=cac;tc=ctc;}
-else{LINE*p;t=0;a=-1;ac=0;tc=0;
-for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){if(p==curwp->w_linep){a=t;ac=tc;}tc+=llength(p)+1;t++;}
-if(a<0){a=t;ac=tc;}
-cl=curwp->w_linep;cg=lgen;ca=a;ct=t;cac=ac;ctc=tc;}
-{char*ps=pos_str;
-if(ro_flag){long P=(a+h>=t||tc<1)?1000:ac*1000/tc;if(P>=995)strcpy(ps,"100%");else if(P>=100)snprintf(ps,5," %ld%%",P/10);else snprintf(ps,5,"%ld.%ld%%",P/10,P%10);}	/* reader: char-%% of the book (the line readout sits on Top/0%% for ~10k lines) */
-else if(t<=h)strcpy(ps," All");else if(a==0)strcpy(ps," Top");else if(a+h>=t)strcpy(ps," Bot");
-else{int pc=a*100/(t>1?t-1:1);pc=pc<1?1:pc>99?99:pc;snprintf(ps,5,"%3d%%",pc);}}}
 wp=curwp;
 if(wp->w_flag!=0) {
 lp=wp->w_linep; i=0;
@@ -795,6 +784,16 @@ i++;
 if((wp->w_flag&WFMODE)!=0)modeline();
 wp->w_flag =0;
 }
+{static LINE *cl;static int cg=-1,ca,ct;static long cac,ctc;	/* position readout, after the recenter above so a jump (End, goto, search) reads right on its own frame */
+int a, t, h=curwp->w_ntrows; long ac, tc;
+if(cl==curwp->w_linep&&cg==lgen){a=ca;t=ct;ac=cac;tc=ctc;}
+else{LINE*p;t=0;a=-1;ac=0;tc=0;
+for(p=lforw(curbp->b_linep);p!=curbp->b_linep;p=lforw(p)){if(p==curwp->w_linep){a=t;ac=tc;}tc+=llength(p)+1;t++;}
+if(a<0){a=t;ac=tc;}
+cl=curwp->w_linep;cg=lgen;ca=a;ct=t;cac=ac;ctc=tc;}
+{char*ps=pos_str;
+if(ro_flag){long P=(a+h>=t||tc<1)?1000:ac*1000/tc;if(P>=995)strcpy(ps,"100%");else if(P>=100)snprintf(ps,5," %ld%%",P/10);else snprintf(ps,5,"%ld.%ld%%",P/10,P%10);}	/* reader: char-%% of the book (the line readout sits on 0%% for ~10k lines) */
+else snprintf(ps,5,"%3d%%",a+h>=t?100:a*100/(t-h));}}	/* 0%% = first line on top, 100%% = last line on screen */
 if(!box_msg) { vscreen[0]->v_color=CTEXT; vscreen[0]->v_flag |= VFCHG; vtmove(0,0); vteeol(); }	/* paint the dedicated top-bar row (text now starts at row 1) */
 lp=curwp->w_linep;
 currow=curwp->w_toprow - curwp->w_skip;
@@ -1163,7 +1162,7 @@ if(h==2){forwpage(0);update();goto loop;}
 if(h==3){speak_line(0);barmore=0;update();goto loop;}
 if(h==4){stop_speak(0);goto loop;}
 if(h==5){
-char fn[NFILEN]="";FILE*fp;
+char fn[NFILEN]="";FILE*fp;barmore=0;	/* one-shot overflow actions close it, like [SPEAK]; paging [^] [v] keeps it open */
 eprintf("[Pick a file...]");update();ttflush();
 #ifdef __APPLE__
 fp=popen("osascript -e 'tell app \"SystemUIServer\" to activate' -e 'POSIX path of (choose file)' 2>/dev/null","r");
