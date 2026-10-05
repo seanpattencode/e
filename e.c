@@ -688,7 +688,7 @@ for(i=n-1;i>=0;i--){opstr[j++]=b[i];if(i==d&&d)opstr[j++]='.';}
 opstr[j++]='m';opstr[j++]='s';while(j<8)opstr[j++]=' ';opstr[j]=0;
 }
 static const struct{short at,w;const char*t;char a;}bar[]={	/* at<0: cols from the right edge; at>=0: from the left. barp() gates paint AND hit-test, so they can't drift */
-{-60,7,"[FIND]",HL_STR},{-37,3,"[^]",HL_KW},{-33,3,"[v]",HL_KW},{-29,7,"[SPEAK]",HL_NUM},{-29,6,"[STOP]",HL_KW},{-21,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-10,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-44,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW}};
+{-60,7,"[FIND]",HL_STR},{-42,3,"[^]",HL_KW},{-38,3,"[v]",HL_KW},{-34,7,"[SPEAK]",HL_NUM},{-34,6,"[STOP]",HL_KW},{-26,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-10,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-15,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW}};
 #define NBAR (int)(sizeof bar/sizeof bar[0])
 static int barp(int i)	/* button i's start col, or -1 when hidden: [^] [v] [SPEAK] [ADD FILE] live in the [more] overflow, left of [more] ([STOP] takes [SPEAK]'s slot while `a say` is alive); [TERM] (tmux shell split below) file mode only, [FIND] yields it the left edge when too narrow (search stays on C-f); in dirmode the sort button leads the bar and right-anchored items yield to it in thin windows */
 {int p=bar[i].at<0?ncol+bar[i].at:bar[i].at;

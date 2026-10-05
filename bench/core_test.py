@@ -264,7 +264,7 @@ e.send(b"\x1b", t=0.1); e.exited()
 # 20. PgDn/wheel at EOF pins on the bottom screenful — regression: it alternated between two spots
 f = wfile("pg.txt", "\n".join(f"line{i} alpha{i}" for i in range(1, 41)) + "\n")
 e = Ed([f])
-POS = slice(80 - 44, 80 - 40)                      # the position readout field on the top bar
+POS = slice(80 - 15, 80 - 11)                      # the position readout field, just left of [more]
 assert e.row(0)[POS] == "  0%", f"readout at the top of a long file: {e.row(0)[POS]!r}"
 for _ in range(3): e.send(b"\x1b[6~")
 s1 = e.screen()[1:]                                # row 0 masked: the top-bar timer changes every op
