@@ -141,3 +141,14 @@ Note when reading a fuzz DIFF: it compares against the committed binary, so an
 intentional change shows up as a difference. Right now that is `^X` alone (it
 used to be a prefix that swallowed the next key). Excluding it, 36/36 random
 sequences are byte-identical.
+
+## The per-line term, removed (2026-10-06)
+
+The arena noted above was built, then went further: lines now point into the buffer
+readin already holds (l_text is a pointer; lalloc'd lines keep their text inline after
+the header), so loading copies nothing, and the line count is a plain byte loop clang
+vectorizes instead of a musl memchr pass. Measured with e's own phase timer, main() to
+first frame on e.c: 302 -> 216us; on a 5,148-line file 739 -> 465us. Whole process
+(hyperfine -N): e.c 524 -> 372us, 5k lines 996 -> 671us, dir start unchanged. Cost:
++144 tokens over three commits (7956ecf, 00b670e, adf6af4). Verified against the
+pre-change binary: parity identical below the top bar, 72/72 fuzz sequences identical.
