@@ -2,14 +2,14 @@
 
 | e (dir) | e (own source, 1.3k lines) | ed V7 1979 | ed V7 1979 (own source) | nano | vi   | ed GNU (own source) | ls  | nvim | nvim (file) | emacs |
 |---------|----------------------------|------------|-------------------------|------|------|---------------------|-----|------|-------------|-------|
-| 0.22    | 0.50                       | 0.17       | 0.52                    | 0.49 | 0.50 | 0.81                | 2.4 | 14.7 | 108         | 25.2  |
+| 0.22    | 0.48                       | 0.16       | 0.53                    | 0.50 | 0.52 | 0.80                | 2.40 | 14.4 | 104         | 25.6  |
 
-e opens a file in ~0.22ms (its own 1,284-line source: 0.50ms). nvim takes 108ms.
+e opens a file in ~0.22ms (its own 1,284-line source: 0.48ms). nvim takes 104ms.
 e renders a full interactive directory browser 10x faster than ls prints filenames.
 Thompson's ed as it left Bell Labs (V7, 1979; source from ~/inspiration, three one-line patches in
-bench.sh, built static like e) starts empty in 0.17ms, the floor on this box, and takes 0.52ms to page
+bench.sh, built static like e) starts empty in 0.16ms, the floor on this box, and takes 0.53ms to page
 e.c into its temp file: the time e takes to read the same file and paint a screen. The 2025 GNU ed
-needs 0.81ms for that file. (ed reads an ASCII copy: V7 rejects any byte with bit 8 set.)
+needs 0.80ms for that file. (ed reads an ASCII copy: V7 rejects any byte with bit 8 set.)
 e is faster than Torvalds's uemacs (same micro-emacs heritage): docs/why-faster-than-uemacs.md.
 The top bar times every operation, not just startup: the white reading is that keystroke's own
 path from bytes-arrived to frame-composed, in ms to 100ns resolution (an arrow key reads 0.0059ms).
