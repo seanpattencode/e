@@ -72,7 +72,7 @@ enum{WFMOVE=2,WFEDIT=4,WFHARD=8,WFMODE=16};
 typedef struct{struct LINE*b_linep;char b_flag,b_fname[NFILEN];}BUFFER;
 #define	BFCHG	0x01
 typedef struct{struct LINE*r_linep;short r_offset;int r_size;}REGION;
-typedef struct LINE{struct LINE*l_fp,*l_bp;short l_size,l_used;char l_text[1];}LINE;
+typedef struct LINE{struct LINE*l_fp,*l_bp;short l_size,l_used;char*l_text;}LINE;
 #define	lforw(lp)	((lp)->l_fp)
 #define	lback(lp)	((lp)->l_bp)
 #define	lgetc(lp, n)	((lp)->l_text[(n)]&0xFF)
@@ -254,10 +254,10 @@ lalloc(int used)
 {
 int size=used<NBLOCK?NBLOCK:used*2;LINE*lp=malloc(sizeof(LINE)+(size_t)size);
 if(!lp){eprintf("Cannot allocate %d bytes",size);return NULL;}
-lp->l_size=(short)size;lp->l_used=(short)used;lgen++;return lp;
+lp->l_text=(char*)(lp+1);lp->l_size=(short)size;lp->l_used=(short)used;lgen++;return lp;
 }
-static char*ab,*ae;static int an;	/* readin's arena: one malloc for a file's lines; a line inside it is only returned with the last of them */
-static void lfr(LINE*lp){if((char*)lp>=ab&&(char*)lp<ae){if(!--an){free(ab);ab=ae=0;}}else free(lp);}
+static char*ab,*ae,*am;static int an;	/* readin's arena: one malloc for a file's LINE headers, their text stays in the read buffer am; both go with the last of them */
+static void lfr(LINE*lp){if((char*)lp>=ab&&(char*)lp<ae){if(!--an){free(ab);free(am);ab=ae=0;}}else free(lp);}
 static void
 lfree(LINE * lp)
 {
@@ -920,11 +920,11 @@ execlp("xdg-open","xdg-open",fname,(char*)0);
 _exit(0);}eprintf("[opened %s]",fname);return TRUE;}
 if((k=bclear(curbp))!=TRUE){free(m);return k;}
 curbp->b_flag&=~BFCHG;strlcpy(curbp->b_fname,fname,NFILEN);fmt=fd<0?tz:st.st_mtim;
-z=m+n;{long nl=1;for(p=m;p<z;p++)nl+=*p=='\n';size_t sz=(size_t)n+(size_t)nl*(sizeof(LINE)+8);a=ab=malloc(sz);ae=ab+sz;}	/* one arena for all the lines: a malloc per line was ~100µs of a 1,284-line open */
+z=m+n;{long nl=1;for(p=m;p<z;p++)nl+=*p=='\n';size_t sz=(size_t)nl*sizeof(LINE);a=ab=malloc(sz);ae=ab+sz;}	/* headers from one arena, text pointing into the buffer just read: a malloc+memcpy per line was ~150µs of a 1,284-line open */
 for(p=m;p<z;p=q+1){q=memchr(p,'\n',(size_t)(z-p));if(!q)q=z;k=(int)(q-p);if(k&&q[-1]=='\r')k--;
-lp1=(LINE*)(void*)a;a+=(sizeof(LINE)+(size_t)k+7)&~(size_t)7;lp1->l_size=lp1->l_used=(short)k;memcpy(lp1->l_text,p,(size_t)k);
+lp1=(LINE*)(void*)a;a+=sizeof(LINE);lp1->l_size=lp1->l_used=(short)k;lp1->l_text=p;
 lp2=lback(curbp->b_linep);lp2->l_fp=lp1;lp1->l_fp=curbp->b_linep;lp1->l_bp=lp2;curbp->b_linep->l_bp=lp1;nline++;}
-an=nline;if(!nline){free(ab);ab=ae=0;}lgen++;free(m);
+an=nline;am=m;if(!nline){free(ab);free(m);ab=ae=0;}lgen++;
 eprintf(fd<0?"[New file]":nline==1?"[Read 1 line]":"[Read %d lines]",nline);
 curwp->w_linep=curwp->w_dotp=lforw(curbp->b_linep);curwp->w_doto=curwp->w_marko=0;curwp->w_markp=NULL;curwp->w_flag|=WFMODE|WFHARD;
 return TRUE;
