@@ -256,6 +256,8 @@ int size=used<NBLOCK?NBLOCK:used*2;LINE*lp=malloc(sizeof(LINE)+(size_t)size);
 if(!lp){eprintf("Cannot allocate %d bytes",size);return NULL;}
 lp->l_size=(short)size;lp->l_used=(short)used;lgen++;return lp;
 }
+static char*ab,*ae;static int an;	/* readin's arena: one malloc for a file's lines; a line inside it is only returned with the last of them */
+static void lfr(LINE*lp){if((char*)lp>=ab&&(char*)lp<ae){if(!--an){free(ab);ab=ae=0;}}else free(lp);}
 static void
 lfree(LINE * lp)
 {
@@ -263,7 +265,7 @@ WINDOW*wp=curwp;lgen++;
 if(wp->w_linep==lp)wp->w_linep=lp->l_fp;
 if(wp->w_dotp==lp){wp->w_dotp=lp->l_fp;wp->w_doto=0;}
 if(wp->w_markp==lp){wp->w_markp=lp->l_fp;wp->w_marko=0;}
-lp->l_bp->l_fp=lp->l_fp;lp->l_fp->l_bp=lp->l_bp;free(lp);
+lp->l_bp->l_fp=lp->l_fp;lp->l_fp->l_bp=lp->l_bp;lfr(lp);
 }
 static void lchange(int flag){if(!(curbp->b_flag&BFCHG)){flag|=WFMODE;curbp->b_flag|=BFCHG;}curwp->w_flag|=flag;}
 static int
@@ -281,7 +283,7 @@ memset(lp2->l_text,c,(size_t)n);curwp->w_dotp=lp2;curwp->w_doto=n;return TRUE;}
 if(lp1->l_used+n>lp1->l_size){	/* grow: copy into a bigger line, splice it in */
 if(!(lp2=lalloc(lp1->l_used+n)))return FALSE;
 memcpy(lp2->l_text,lp1->l_text,(size_t)doto);memcpy(lp2->l_text+doto+n,lp1->l_text+doto,(size_t)(lp1->l_used-doto));
-lp2->l_bp=lp1->l_bp;lp2->l_fp=lp1->l_fp;lp1->l_bp->l_fp=lp2;lp1->l_fp->l_bp=lp2;free(lp1);}
+lp2->l_bp=lp1->l_bp;lp2->l_fp=lp1->l_fp;lp1->l_bp->l_fp=lp2;lp1->l_fp->l_bp=lp2;lfr(lp1);}
 else{lp2=lp1;lp2->l_used+=n;memmove(lp1->l_text+doto+n,lp1->l_text+doto,(size_t)(lp1->l_used-n-doto));}
 memset(lp2->l_text+doto,c,(size_t)n);
 if(wp->w_linep==lp1)wp->w_linep=lp2;
@@ -313,14 +315,14 @@ memcpy(lp1->l_text+lp1->l_used,lp2->l_text,(size_t)lp2->l_used);
 if(wp->w_linep==lp2)wp->w_linep=lp1;
 if(wp->w_dotp==lp2){wp->w_dotp=lp1;wp->w_doto+=lp1->l_used;}
 if(wp->w_markp==lp2){wp->w_markp=lp1;wp->w_marko+=lp1->l_used;}
-lp1->l_used+=lp2->l_used;lp1->l_fp=lp2->l_fp;lp2->l_fp->l_bp=lp1;free(lp2);return TRUE;}
+lp1->l_used+=lp2->l_used;lp1->l_fp=lp2->l_fp;lp2->l_fp->l_bp=lp1;lfr(lp2);return TRUE;}
 if(!(lp3=lalloc(lp1->l_used+lp2->l_used)))return FALSE;
 memcpy(lp3->l_text,lp1->l_text,(size_t)lp1->l_used);memcpy(lp3->l_text+lp1->l_used,lp2->l_text,(size_t)lp2->l_used);
 lp3->l_bp=lp1->l_bp;lp3->l_fp=lp2->l_fp;lp1->l_bp->l_fp=lp3;lp2->l_fp->l_bp=lp3;
 if(wp->w_linep==lp1||wp->w_linep==lp2)wp->w_linep=lp3;
 if(wp->w_dotp==lp1)wp->w_dotp=lp3;else if(wp->w_dotp==lp2){wp->w_dotp=lp3;wp->w_doto+=lp1->l_used;}
 if(wp->w_markp==lp1)wp->w_markp=lp3;else if(wp->w_markp==lp2){wp->w_markp=lp3;wp->w_marko+=lp1->l_used;}
-free(lp1);free(lp2);return TRUE;
+lfr(lp1);lfr(lp2);return TRUE;
 }
 static void kdelete(void){free(kbufp);kbufp=NULL;kused=ksize=0;}
 static int
@@ -901,7 +903,7 @@ LINE	*lp1,*lp2;
 struct stat st;
 int	fd,k,nline=0;
 long n=0,cap=4096;
-char *m,*p,*q,*z;
+char *m,*p,*q,*z,*a;
 if(filldir(fname))return TRUE;
 fd=open(fname,O_RDONLY);	/* one read: getc-per-byte + 2x lines cost 100µs+ per 5k lines */
 if(fd>=0&&!fstat(fd,&st))cap+=st.st_size;
@@ -918,10 +920,11 @@ execlp("xdg-open","xdg-open",fname,(char*)0);
 _exit(0);}eprintf("[opened %s]",fname);return TRUE;}
 if((k=bclear(curbp))!=TRUE){free(m);return k;}
 curbp->b_flag&=~BFCHG;strlcpy(curbp->b_fname,fname,NFILEN);fmt=fd<0?tz:st.st_mtim;
-z=m+n;for(p=m;p<z;p=q+1){q=memchr(p,'\n',(size_t)(z-p));if(!q)q=z;k=(int)(q-p);if(k&&q[-1]=='\r')k--;
-lp1=malloc(sizeof(LINE)+(size_t)k);lp1->l_size=lp1->l_used=(short)k;memcpy(lp1->l_text,p,(size_t)k);
+z=m+n;{long nl=1;for(p=m;p<z&&(q=memchr(p,'\n',(size_t)(z-p)));p=q+1)nl++;size_t sz=(size_t)n+(size_t)nl*(sizeof(LINE)+8);a=ab=malloc(sz);ae=ab+sz;}	/* one arena for all the lines: a malloc per line was ~100µs of a 1,284-line open */
+for(p=m;p<z;p=q+1){q=memchr(p,'\n',(size_t)(z-p));if(!q)q=z;k=(int)(q-p);if(k&&q[-1]=='\r')k--;
+lp1=(LINE*)(void*)a;a+=(sizeof(LINE)+(size_t)k+7)&~(size_t)7;lp1->l_size=lp1->l_used=(short)k;memcpy(lp1->l_text,p,(size_t)k);
 lp2=lback(curbp->b_linep);lp2->l_fp=lp1;lp1->l_fp=curbp->b_linep;lp1->l_bp=lp2;curbp->b_linep->l_bp=lp1;nline++;}
-lgen++;free(m);
+an=nline;if(!nline){free(ab);ab=ae=0;}lgen++;free(m);
 eprintf(fd<0?"[New file]":nline==1?"[Read 1 line]":"[Read %d lines]",nline);
 curwp->w_linep=curwp->w_dotp=lforw(curbp->b_linep);curwp->w_doto=curwp->w_marko=0;curwp->w_markp=NULL;curwp->w_flag|=WFMODE|WFHARD;
 return TRUE;
