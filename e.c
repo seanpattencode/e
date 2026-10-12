@@ -121,7 +121,7 @@ static const char c_kw[]=" auto break case char const continue default do double
 static VIDEO	*vscreen[NROW-1];
 static VIDEO	video[NROW-1];
 /* `a say` child, own pgid so kill(-pid) takes uvx/python/ffmpeg too */
-static pid_t speak_pid=0;
+static pid_t speak_pid=0,open_pid;
 	/* top-bar button */
 /* mutual recursion: the only prototypes left */
 static int ereply(char* fp, char* buf, int nbuf, ...);
@@ -689,15 +689,15 @@ while(n<=d)b[n++]='0';	/* leading zeros so the point always keeps a digit on its
 for(i=n-1;i>=0;i--){opstr[j++]=b[i];if(i==d&&d)opstr[j++]='.';}
 opstr[j++]='m';opstr[j++]='s';while(j<8)opstr[j++]=' ';opstr[j]=0;
 }
-static const struct{short at,w;const char*t;char a;}bar[]={	/* at<0: cols from the right edge; at>=0: from the left. barp() gates paint AND hit-test, so they can't drift */
-{-60,7,"[FIND]",HL_STR},{-42,3,"[^]",HL_KW},{-38,3,"[v]",HL_KW},{-34,7,"[SPEAK]",HL_NUM},{-34,6,"[STOP]",HL_KW},{-26,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-10,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-15,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW}};
+static const struct{short at,w;const char*t;char a;}bar[]={ /* negative offsets anchor to the right; barp gates paint and clicks */
+{-60,7,"[FIND]",HL_STR},{-42,3,"[^]",HL_KW},{-38,3,"[v]",HL_KW},{-34,7,"[SPEAK]",HL_NUM},{-34,6,"[STOP]",HL_KW},{-26,10,"[ADD FILE]",HL_STR},{-3,3,"[X]",HL_KW},{0,14,sortlab,HL_NUM},{-10,6,"[more]",HL_KW},{-53,8,opstr,HL_WHITE},{-15,4,pos_str,HL_NUM},{0,6,"[TERM]",HL_KW},{0,17,"[OPEN EXTERNALLY]",HL_STR}};
 #define NBAR (int)(sizeof bar/sizeof bar[0])
-static int barp(int i)	/* button i's start col, or -1 when hidden: [^] [v] [SPEAK] [ADD FILE] live in the [more] overflow, left of [more] ([STOP] takes [SPEAK]'s slot while `a say` is alive); [TERM] (tmux shell split below) file mode only, [FIND] yields it the left edge when too narrow (search stays on C-f); in dirmode the sort button leads the bar and right-anchored items yield to it in thin windows */
-{int p=bar[i].at<0?ncol+bar[i].at:bar[i].at;
-return p>=(dirmode&&bar[i].at<0?15:0)&&(i==0?dirmode||ncol>65:i==1||i==2||i==5?barmore:i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode:i==11?!dirmode:1)?p:-1;}
-static int barhit(int x)	/* which live button x is on, or -1; hidden or off a narrow terminal is not there to hit */
+static int barp(int i)
+{int p=bar[i].at<0?ncol+bar[i].at:bar[i].at,lead=dirmode?15:barmore&&ncol>=28?18:7;
+return p>=(bar[i].at<0?lead:0)&&(i==1||i==2||i==5?barmore:i==3?barmore&&!speak_running():i==4?speak_running():i==7?dirmode:i==11?!dirmode&&lead==7:i==12?!dirmode&&lead==18:1)?p:-1;}
+static int barhit(int x)
 {int i,p;for(i=0;i<NBAR;i++)if((p=barp(i))>=0&&x>=p&&x<p+bar[i].w)return i;return -1;}
-static void tb(int at,const char*t,int a){int i;if(at<0)return;for(i=0;t[i]&&at+i<ncol;i++){vscreen[0]->v_text[at+i]=t[i];vscreen[0]->v_attr[at+i]=(char)a;}}	/* a field starting off-screen is dropped whole: "941ms" for 0.0941ms is worse than none */
+static void tb(int at,const char*t,int a){int i;if(at<0)return;for(i=0;t[i]&&at+i<ncol;i++){vscreen[0]->v_text[at+i]=t[i];vscreen[0]->v_attr[at+i]=(char)a;}}
 static void
 vteeol(void)
 {
@@ -711,7 +711,7 @@ static void opend(int r,int c)	/* patched into the frame's own write: no extra s
 struct timespec t;
 clock_gettime(CLOCK_MONOTONIC,&t);
 opfmt((long)(t.tv_sec-opt0.tv_sec)*1000000000L+(long)(t.tv_nsec-opt0.tv_nsec));
-if(!box_msg&&ncol>=(dirmode?68:53)){tb(ncol-53,opstr,HL_WHITE);	/* into vscreen too, so the next repaint keeps the same reading; in dirmode it yields to the sort button */
+if(!box_msg&&barp(9)>=0){tb(ncol-53,opstr,HL_WHITE);
 ttmove(0,ncol-53);tts(hl_colors[HL_WHITE]);tts(opstr);tts(hl_colors[HL_NORM]);ttcol=ncol-45;}
 ttmove(r,c);ttflush();
 }
@@ -896,6 +896,26 @@ if(pick_out){FILE*g;if((g=fopen(pickmem(),"w"))){fputs(curbp->b_fname,g);fclose(
 while((e=readdir(d))&&c<DENTMAX&&o<(int)sizeof dpool-260){if(e->d_name[0]=='.'&&!e->d_name[1])continue;dents[c].d=e->d_type==DT_DIR;dents[c].m=-1;strlcpy(dents[c++].n=dpool+o,e->d_name,256);o+=(int)strlen(dpool+o)+1;}
 closedir(d);dcnt=dall=c;dpo=o;if(dsort)dstat();qsort(dents,c,sizeof(Dent),dentcmp);rdone=rcut=0;dirmode=1;dirsl=0;dirsrch[0]=0;dshow();
 eprintf("%d items · type to filter (searches subfolders too) · ^L edit path · ^U sort",c);return 1;}
+static void openfile(char *fname)
+{
+char *path=realpath(fname,NULL);
+if(!path){eprintf("Cannot open %s",fname);return;}
+if(open_pid>0){free(path);eprintf("[Open pending]");return;}
+open_pid=fork();
+if(!open_pid){int fd;setsid();fd=open("/dev/null",O_RDWR);if(fd<0)_exit(126);
+dup2(fd,0);dup2(fd,1);dup2(fd,2);if(fd>2)close(fd);
+#ifdef __APPLE__
+execlp("open","open",path,(char*)0);
+#else
+{char *cmd;size_t i,j;
+/* Let the desktop supply its display and D-Bus environment. Encode shell metacharacters. */
+cmd=malloc(strlen(path)*3+24);if(!cmd)_exit(126);strcpy(cmd,"xdg-open file://");j=strlen(cmd);
+for(i=0;path[i];i++){if(path[i]=='/')cmd[j++]='/';else{sprintf(cmd+j,"%%%02X",(unsigned char)path[i]);j+=3;}}cmd[j]=0;
+execlp("sh","sh","-c","for s in \"$XDG_RUNTIME_DIR\"/sway-ipc.*.sock; do [ -S \"$s\" ] && exec swaymsg -s \"$s\" exec \"$1\"; done; [ -n \"$DISPLAY$WAYLAND_DISPLAY\" ] && exec xdg-open \"$2\"","e",cmd,path,(char*)0);}
+#endif
+_exit(127);}
+free(path);eprintf(open_pid<0?"[Open failed]":"[Open requested]");
+}
 static int
 readin(char * fname)
 {
@@ -911,13 +931,7 @@ m=malloc(cap);
 while(fd>=0&&(k=read(fd,m+n,cap-n))>0){n+=k;if(n==cap)m=realloc(m,cap*=2);}
 close(fd);
 for(k=0;k<n&&k<512;k++){unsigned c=(unsigned char)m[k];if(c<32&&c!=9&&c!=10&&c!=12&&c!=13)break;}
-if((k<n&&k<512)||(n>=4&&!memcmp(m,"%PDF",4))){free(m);if(!fork()){	/* binary: hand to the desktop opener, keep the buffer */
-#ifdef __APPLE__
-execlp("open","open",fname,(char*)0);
-#else
-execlp("xdg-open","xdg-open",fname,(char*)0);
-#endif
-_exit(0);}eprintf("[opened %s]",fname);return TRUE;}
+if((k<n&&k<512)||(n>=4&&!memcmp(m,"%PDF",4))){free(m);openfile(fname);return TRUE;}
 if((k=bclear(curbp))!=TRUE){free(m);return k;}
 curbp->b_flag&=~BFCHG;strlcpy(curbp->b_fname,fname,NFILEN);fmt=fd<0?tz:st.st_mtim;
 z=m+n;{long nl=1;for(p=m;p<z;p++)nl+=*p=='\n';size_t sz=(size_t)nl*sizeof(LINE);a=ab=malloc(sz);ae=ab+sz;}	/* headers from one arena, text pointing into the buffer just read: a malloc+memcpy per line was ~150µs of a 1,284-line open */
@@ -950,6 +964,7 @@ if(rh<rt)return rbuf[rh++];
 for(;;){fd_set r;FD_ZERO(&r);FD_SET(0,&r);struct timeval t={0,100000};struct stat s;
 if(select(1,&r,0,0,&t)<0){if(resized)winch();continue;}	/* EINTR from SIGWINCH: reflow now (foot tiles after exec) */
 if(FD_ISSET(0,&r)){int n=read(0,rbuf,sizeof rbuf);if(n>0){rh=1;rt=n;clock_gettime(CLOCK_MONOTONIC,&opt0);return rbuf[0];}continue;}	/* the operation starts the moment its bytes arrive, decode included */
+if(open_pid>0){int status;if(waitpid(open_pid,&status,WNOHANG)==open_pid){open_pid=0;if(status)eprintf("[Open failed: check desktop opener]");}}
 if(!dirmode&&!(curbp->b_flag&BFCHG)&&!stat(curbp->b_fname,&s)&&MT(s.st_mtim,fmt)){LINE*lp;clock_gettime(CLOCK_MONOTONIC,&opt0);readin(curbp->b_fname);	/* the reload is its own operation: time it from here */
 for(lp=lforw(curbp->b_linep);lforw(lp)!=curbp->b_linep;lp=lforw(lp));
 curwp->w_dotp=lp;curwp->w_doto=llength(lp);
@@ -1178,6 +1193,7 @@ goto loop;}
 if(h==7){dosort(0);update();goto loop;}
 if(h==8){barmore^=1;update();goto loop;}
 if(h==11){if(system("tmux split-window -v -l 25% -c \"#{pane_current_path}\""))eprintf("[tmux split failed]");goto loop;}
+if(h==12){barmore=0;openfile(curbp->b_fname);update();goto loop;}
 if(h==0)goto loop;}	/* [FIND] acts on release: on press the release's ESC seq would land inside isearch */
 if(y==0&&ch=='m'&&barhit(x)==0){if(dirmode)dfilter();else forwisearch(0);update();goto loop;}	/* [FIND] in the browser = filter prompt, not buffer isearch */
 if(row>=0&&row<curwp->w_ntrows) {

@@ -17,6 +17,10 @@ It is patched into the same write as the frame, so the measurement costs no extr
 
 bench/bench.sh
 
+[more] → [OPEN EXTERNALLY] opens the saved file; unsaved edits stay in e
+(HTML in the browser). Sway supplies the desktop even from SSH/tmux;
+launching is asynchronous; errors appear in the editor.
+
 # Finding a file: type in the browser
 
 `e .` (or `e --pick`) opens the directory browser; typing filters it. The filter searches the
